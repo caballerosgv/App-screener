@@ -1,0 +1,19 @@
+{
+  "name": "app-screener",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Base para empaquetar app web como app Android con Capacitor",
+  "scripts": {
+    "build": "rm -rf dist && mkdir -p dist && cp -R public/. dist/",
+    "android:add": "npx cap add android",
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "typescript": "^5.5.4"
+  }
+}
