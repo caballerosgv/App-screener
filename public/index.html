@@ -2,31 +2,75 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>App Screener</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        background: #0f172a;
-        color: #e2e8f0;
-      }
-      .card {
-        padding: 2rem;
-        border-radius: 16px;
-        background: #1e293b;
-        max-width: 480px;
-        text-align: center;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0e14" />
+    <meta name="description" content="Screener y estudio de acciones de EE. UU. y Europa con el marco de los 8 factores: moat, dirección, crecimiento, rentabilidad, balance, valoración, riesgos y catalizadores." />
+    <title>MOAT · Screener de acciones EE. UU. y Europa</title>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="card">
-      <h1>App Screener en Android</h1>
-      <p>Base web lista para empaquetarse con Capacitor.</p>
-    </main>
+    <a class="skip" href="#view">Saltar al contenido</a>
+
+    <header class="topbar">
+      <a class="brand" href="#/screener" aria-label="MOAT, inicio">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26"><path d="M16 2 30 11v10L16 30 2 21V11L16 2Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M16 9l7 4.5v5L16 23l-7-4.5v-5L16 9Z" fill="currentColor" opacity=".35"/></svg>
+        </span>
+        <span class="brand-text">
+          <strong>MOAT</strong>
+          <small>Análisis fundamental</small>
+        </span>
+      </a>
+
+      <nav class="nav" id="nav" aria-label="Secciones">
+        <a href="#/screener" data-nav="screener">Screener</a>
+        <a href="#/comparar" data-nav="comparar">Comparar</a>
+        <a href="#/noticias" data-nav="noticias">Noticias</a>
+        <a href="#/seguimiento" data-nav="seguimiento">Seguimiento<span class="nav-count" id="watchCount" hidden>0</span></a>
+        <a href="#/marco" data-nav="marco">8 factores</a>
+      </nav>
+
+      <form class="gsearch" id="gsearchForm" role="search" autocomplete="off">
+        <label class="skip" for="gsearch">Buscar cualquier valor</label>
+        <svg class="gsearch-icon" viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
+          <circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="m13.2 13.2 3.3 3.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input id="gsearch" type="search" placeholder="Buscar valor: ASML, BMW, Apple…"
+          aria-label="Buscar cualquier valor de EE. UU. o Europa" aria-expanded="false"
+          aria-controls="gsearchPanel" aria-autocomplete="list" />
+        <div class="gsearch-panel" id="gsearchPanel" hidden>
+          <p class="gsearch-status" id="gsearchStatus"></p>
+          <ul class="gsearch-list" id="gsearchList" role="listbox" aria-label="Resultados de búsqueda"></ul>
+          <a class="gsearch-all" id="gsearchAll" href="#/buscar/" hidden>Ver todos los resultados</a>
+        </div>
+      </form>
+
+      <div class="topbar-actions">
+        <span class="demo-pill" title="Los datos incluidos son de demostración">Datos demo</span>
+        <button class="btn btn-ghost" id="dataBtn" type="button">
+          <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M10 2v4m0 8v4M2 10h4m8 0h4M4.4 4.4l2.8 2.8m5.6 5.6 2.8 2.8m0-11.2-2.8 2.8m-5.6 5.6-2.8 2.8" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          Datos en vivo
+        </button>
+      </div>
+    </header>
+
+    <main id="view" class="view" tabindex="-1"></main>
+
+    <footer class="footer">
+      <p><strong>MOAT</strong> es una herramienta de estudio, no una recomendación de inversión. Los datos incluidos son de demostración y pueden no coincidir con la realidad; verifica siempre con las cuentas oficiales de la empresa antes de invertir.</p>
+      <p class="footer-meta">Marco de 8 factores · Mercado estadounidense y europeo · <span id="year"></span></p>
+    </footer>
+
+    <dialog id="dataDialog" class="dialog">
+      <form method="dialog" class="dialog-head">
+        <h2>Datos en vivo</h2>
+        <button class="icon-btn" value="close" aria-label="Cerrar">×</button>
+      </form>
+      <div class="dialog-body" id="dataBody"></div>
+    </dialog>
+
+    <script src="config.js"></script>
+    <script type="module" src="js/app.js"></script>
   </body>
 </html>
