@@ -2,8 +2,11 @@
   "name": "app-screener",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Base para empaquetar app web como app Android con Capacitor",
   "scripts": {
+    "dev": "node server/index.js",
+    "start": "node server/index.js",
     "build": "rm -rf dist && mkdir -p dist && cp -R public/. dist/",
     "android:add": "npx cap add android",
     "android:sync": "npx cap sync android",
