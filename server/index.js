@@ -14,7 +14,7 @@ import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildAnalysis } from './rubric.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -533,18 +533,32 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`MOAT escuchando en http://${HOST}:${PORT}`);
-  console.log(`Proveedor: ${PROVIDER} · modo: ${MODE}${MODE === 'demo' ? ' (token público, solo AAPL/AMZN/TSLA/VTI)' : ''}`);
-  if (MODE === 'demo') {
-    console.log('Configura EODHD_API_TOKEN en .env para datos de todo el universo US + Europa.');
+/** Solo escucha al ejecutarlo directamente; al importarlo (pruebas) queda inerte. */
+const isMain = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+  } catch {
+    return false;
   }
-});
+})();
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    console.log(`\nCerrando (${signal})…`);
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 3000).unref();
+if (isMain) {
+  server.listen(PORT, HOST, () => {
+    console.log(`MOAT escuchando en http://${HOST}:${PORT}`);
+    console.log(`Proveedor: ${PROVIDER} · modo: ${MODE}${MODE === 'demo' ? ' (token público, solo AAPL/AMZN/TSLA/VTI)' : ''}`);
+    if (MODE === 'demo') {
+      console.log('Configura EODHD_API_TOKEN en .env para datos de todo el universo US + Europa.');
+    }
   });
+
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => {
+      console.log(`\nCerrando (${signal})…`);
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 3000).unref();
+    });
+  }
 }
+
+export { server };
