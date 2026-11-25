@@ -21,6 +21,7 @@ import {
 } from './backup.mjs';
 import { SEC_USER_AGENT_DEFAULT, InsiderError, createInsiderClient } from './insiders.mjs';
 import { MarketError, createMarketClient } from './free-market.mjs';
+import { createNasdaqClient } from './nasdaq.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -70,6 +71,25 @@ const DEMO_TICKERS = ['AAPL.US', 'AMZN.US', 'TSLA.US', 'VTI.US'];
 const MARKET_SOURCE = String(process.env.MARKET_SOURCE || 'auto').toLowerCase();
 const USE_FREE_MARKET = MARKET_SOURCE === 'free' || (MARKET_SOURCE !== 'eodhd' && MODE === 'demo');
 const market = createMarketClient();
+const nasdaq = createNasdaqClient();
+
+/** Cotización gratuita: TradingView y, si falla en un valor de EE. UU., Nasdaq. */
+async function freeQuote(symbol) {
+  try {
+    return await market.quote(symbol);
+  } catch (error) {
+    if (!(error instanceof MarketError) || !/\.US$/i.test(symbol)) throw error;
+    try {
+      return await nasdaq.quote(symbol);
+    } catch (second) {
+      throw new MarketError(
+        503,
+        'market_unavailable',
+        `Sin cotización gratuita para ${symbol}: TradingView (${error.code}) y Nasdaq (${second.code}).`
+      );
+    }
+  }
+}
 
 async function freeMarket(run) {
   try {
@@ -238,7 +258,7 @@ async function getQuote(symbol, refresh) {
     if (cached) return cached;
   }
   if (USE_FREE_MARKET) {
-    const data = await freeMarket(() => market.quote(symbol));
+    const data = await freeMarket(() => freeQuote(symbol));
     cacheSet(cacheKey, data, TTL.quote);
     return data;
   }
@@ -572,6 +592,7 @@ async function handleApi(url, res, req) {
       mode: MODE,
       keyConfigured: TOKEN !== 'demo',
       provider: USE_FREE_MARKET ? 'tradingview' : 'eodhd',
+      fallback: USE_FREE_MARKET ? 'nasdaq' : undefined,
       demoTickers: !USE_FREE_MARKET && MODE === 'demo' ? DEMO_TICKERS : undefined,
       supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup'],
       time: new Date().toISOString()

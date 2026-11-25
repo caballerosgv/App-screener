@@ -440,6 +440,39 @@ test('sin token real la API usa la fuente gratuita para todos los mercados', asy
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
 
+test('si TradingView falla, la cotización de EE. UU. sale de Nasdaq', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer({ marketSource: 'auto' });
+  const respond = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('tradingview.com')) return respond(429, {});
+    if (url.includes('api.nasdaq.com')) {
+      return respond(200, {
+        data: {
+          primaryData: { lastSalePrice: '$355.05', netChange: '-0.53', percentageChange: '-0.15%' },
+          secondaryData: { lastSalePrice: '$355.58', netChange: '+1.51', percentageChange: '+0.43%' }
+        }
+      });
+    }
+    return respond(404, {});
+  };
+
+  const apple = await request(server, '/api/quote?symbol=AAPL', { ip: '10.10.0.1' });
+  check('responde con el respaldo', apple.status === 200 && apple.body.source === 'Nasdaq', `${apple.status}/${apple.body.source}`);
+  check('precio del respaldo', apple.body.price === 355.58, String(apple.body.price));
+
+  const europe = await request(server, '/api/quote?symbol=ASML.AS', { ip: '10.10.0.2' });
+  check('un valor europeo no cae a Nasdaq', europe.status === 503 && europe.body.error.code === 'market_rate_limit', `${europe.status}/${europe.body.error.code}`);
+
+  globalThis.fetch = async (input) => (String(input).includes('api.nasdaq.com') ? respond(500, {}) : respond(429, {}));
+  const roto = await request(server, '/api/quote?symbol=MSFT', { ip: '10.10.0.3' });
+  check('las dos fuentes caídas se explican', roto.status === 503 && roto.body.error.code === 'market_unavailable', `${roto.status}/${roto.body.error.code}`);
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
 test('el límite de 120 peticiones por minuto se aplica por IP', async () => {
   const { check, failures } = makeChecks();
   const server = await loadServer();
