@@ -39,6 +39,10 @@ Vistas de la app real, tomadas del build local. Los datos de las 24 empresas son
 
 ![Tarjeta de datos de mercado de EODHD para Apple](artifacts/datos-eodhd.png)
 
+**Datos gratis, sin token** — la fuente gratuita cubre también las bolsas europeas, con la moneda local.
+
+![Tarjeta de datos de mercado con ASML en euros desde la fuente gratuita](artifacts/datos-gratis-asml.png)
+
 **Directivos** — compras y ventas de los Form 4 de la SEC, con el resumen del periodo y el plan 10b5-1.
 
 ![Tarjeta de directivos con las ventas reales de Microsoft](artifacts/directivos-msft.png)
@@ -47,7 +51,7 @@ Recortes: [perfil de calidad](artifacts/radar.png) · [tabla del screener](artif
 
 ## Buscar cualquier valor
 
-La cabecera tiene un buscador que consulta `GET /api/search`, y el proxy lo resuelve contra el **buscador de símbolos de EODHD** (`/api/search/{consulta}`). El navegador nunca habla con el proveedor: solo con `/api/search`, que añade el token en el servidor.
+La cabecera tiene un buscador que consulta `GET /api/search`, y el proxy lo resuelve con la **fuente gratuita** (TradingView) o con el **buscador de EODHD** si hay token. El navegador nunca habla con el proveedor: solo con `/api/search`.
 
 - **Filtro geográfico**: se queda con NYSE/NASDAQ y las bolsas europeas (LSE, Euronext, Xetra, SIX, BME, Borsa Italiana, Nasdaq Nordic, Oslo, Viena, Varsovia…). Los valores de otros mercados no aparecen.
 - **Filtro de instrumentos**: fuera warrants, bonos, notas, derechos, índices, futuros y fondos de inversión; quedan acciones y ETFs.
@@ -64,7 +68,7 @@ Al elegir un resultado se abre `#/empresa/ASML.AS`. Si el ticker no está entre 
 
 Como esas empresas no tienen análisis editorial, la ficha muestra **Perfil de la empresa** en lugar de la tesis, los riesgos y los catalizadores de las 24 de demostración.
 
-> **Token demo**: el token público de EODHD no incluye el buscador de símbolos y responde 403. Sin `EODHD_API_TOKEN`, el buscador explica que necesita un token propio; todo lo demás de la app sigue funcionando en modo demo.
+> **Sin token**: el buscador, la cotización y los fundamentales básicos salen de la fuente gratuita, que cubre EE. UU. y las principales bolsas europeas. `/api/analysis` (notas con cuentas reales) y los titulares sí necesitan `EODHD_API_TOKEN`.
 
 ## Notas automáticas: la rúbrica
 
@@ -97,17 +101,19 @@ En la cabecera de cada factor aparece el origen de la nota: **automática**, **t
 
 Las notas propias y los análisis se guardan en `localStorage` de este dispositivo, con una **copia de seguridad** en **Seguimiento → Copia de seguridad**: un JSON con las notas, las sobrescrituras, los perfiles remotos, los checklists, los análisis automáticos, las noticias leídas y el seguimiento. Lleva `version` y `exportedAt`, y al importarlo se sustituyen solo las secciones que incluya el archivo, avisando de lo aplicado; un archivo inválido o de una versión más nueva se rechaza sin tocar los datos.
 
-Además de descargar el JSON, puedes **guardar la copia en el servidor** con un código de 8 caracteres (por ejemplo `ABCD-EFGH`): el proxy la deja en `.data/backups/` (carpeta configurable con `MOAT_DATA_DIR`) y en otro dispositivo basta escribir el código y pulsar *Recuperar*. Cualquiera que tenga el código puede leerla, así que trátalo como una contraseña; el servidor rechaza copias de más de 1 MB, con secciones mal formadas o de una versión más nueva. En modo demo solo se calculan las empresas que permite el token público (AAPL, AMZN, TSLA, VTI); con `EODHD_API_TOKEN` configurado, cualquier empresa del universo.
+Además de descargar el JSON, puedes **guardar la copia en el servidor** con un código de 8 caracteres (por ejemplo `ABCD-EFGH`): el proxy la deja en `.data/backups/` (carpeta configurable con `MOAT_DATA_DIR`) y en otro dispositivo basta escribir el código y pulsar *Recuperar*. Cualquiera que tenga el código puede leerla, así que trátalo como una contraseña; el servidor rechaza copias de más de 1 MB, con secciones mal formadas o de una versión más nueva. El análisis con cuentas reales necesita `EODHD_API_TOKEN`; sin token, la app sigue funcionando con la cotización y los fundamentales básicos gratuitos.
 
-## Datos de mercado: por qué EODHD y cómo se conecta
+## Datos de mercado: fuentes y cómo se conecta
 
-La integración usa **EODHD**, el único proveedor del mercado que cubre de serie las bolsas estadounidenses y europeas con fundamentales y noticias bajo un mismo formato de ticker (`AAPL.US`, `ASML.AS`, `SAP.DE`, `NESN.SW`, `MC.PA`, `IBE.MC`). Alternativas descartadas: FMP limita el plan gratuito a EE. UU. y Europa exige el plan Ultimate; Finnhub solo da fundamentales de EE. UU. salvo en su plan global (3.500 $/mes); Twelve Data no ofrece noticias y sus fundamentales empiezan en el plan Grow.
+Por defecto la app usa una **fuente gratuita sin clave** (los endpoints públicos del escáner y del buscador de TradingView): cotización, apertura, máximo, mínimo, capitalización, PER, sector y buscador para **todos los símbolos de EE. UU. y de las principales bolsas europeas** (`ASML.AS`, `SAP.DE`, `NESN.SW`, `MC.PA`, `IBE.MC`, `NOVO-B.CO`…). No son una API con contrato estable, así que si dejan de responder el proxy devuelve un error claro (`market_*`) en vez de datos inventados.
+
+Con `EODHD_API_TOKEN` en `.env` el proxy pasa a **EODHD** (`MARKET_SOURCE=auto` usa EODHD solo si hay token; `free` fuerza la fuente gratuita y `eodhd` la exige). EODHD añade lo que la fuente gratuita no da: estados financieros para el análisis de los 8 factores, titulares y fundamentales completos. Alternativas descartadas para esa parte: FMP limita el plan gratuito a EE. UU.; Finnhub solo da fundamentales de EE. UU. salvo en su plan global; Twelve Data no ofrece noticias y sus fundamentales empiezan en el plan Grow.
 
 La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expone un proxy:
 
 | Endpoint | Devuelve | Caché |
 |---|---|---|
-| `GET /api/health` | estado del servidor, proveedor y modo (demo o token propio) | — |
+| `GET /api/health` | estado del servidor y proveedor activo (TradingView gratis o EODHD) | — |
 | `GET /api/search?q=asml&limit=15` | valores de EE. UU. y Europa que coinciden con nombre o ticker | 24 h |
 | `GET /api/quote?symbol=AAPL` | cotización normalizada | 60 s |
 | `GET /api/fundamentals?symbol=ASML.AS` | perfil, sector, capitalización, PER, ROE… | 24 h |
@@ -129,7 +135,7 @@ La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expo
 ### Puesta en marcha
 
 ```bash
-cp .env.example .env      # pega tu EODHD_API_TOKEN (sin token arranca en modo demo)
+cp .env.example .env      # opcional: pega tu EODHD_API_TOKEN (sin token se usa la fuente gratuita)
 npm run dev               # web + API en http://localhost:3000
 ```
 
@@ -162,11 +168,12 @@ npm test
 | `test/overrides.test.mjs` | Rúbrica automática, badges de origen, sobrescritura de notas, recálculo del total y persistencia. |
 | `test/search.test.mjs` | Buscador de símbolos (panel, teclado, vista de resultados, error de token demo) y ficha de valores fuera del universo. |
 | `test/server.test.mjs` | Servidor y proxy: validación y normalización de símbolos, códigos de error normalizados, caché, límite por IP y `/api/health`, con el proveedor simulado y sin red. |
+| `test/free-market.test.mjs` | Fuente gratuita: resolución de tickers (EE. UU., Euronext, Xetra, SIX, OMX), cotización, fundamentales, buscador con sufijos de la app y errores del proveedor. |
 | `test/insiders.test.mjs` | Insiders: parser XML, Form 4 (solo P/S, derivados ignorados, plan 10b5-1), resumen, enmiendas 4/A, límites, caché del directorio y errores de la SEC, sin red. |
 | `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial, guardado y recuperación en el servidor con código, y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 392 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 428 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 

@@ -390,7 +390,14 @@ function metricCard(label, value, cls = '') {
 }
 
 /* ---------- notas: automáticas, tuyas y de demostración ---------- */
-const providerSymbol = (ticker) => (ticker.includes('.') ? ticker : `${ticker}.US`);
+// Valores europeos que en la app van sin sufijo de bolsa: su listado real es local.
+const PROVIDER_SUFFIX = { ASML: 'AS', SAP: 'DE' };
+
+const providerSymbol = (ticker) => {
+  if (ticker.includes('.')) return ticker;
+  const suffix = PROVIDER_SUFFIX[String(ticker).toUpperCase()];
+  return `${ticker}.${suffix || 'US'}`;
+};
 
 function analysisFor(c) {
   return state.auto[c.t] || null;
@@ -775,11 +782,11 @@ function renderCompany(ticker, openIndex = 0) {
         </section>
 
         <section class="card" id="liveSlot">
-          <div class="panel-title">Datos de mercado <span>EODHD</span></div>
-          <p style="font-size:.82rem;color:var(--muted)">Cotización, perfil y titulares recientes desde el proxy del servidor. La clave del proveedor nunca llega al navegador.</p>
+          <div class="panel-title">Datos de mercado <span id="liveSource">fuente</span></div>
+          <p style="font-size:.82rem;color:var(--muted)">Cotización y perfil desde el proxy del servidor; con token de EODHD, también titulares. La clave del proveedor nunca llega al navegador.</p>
           <button class="btn btn-sm" style="margin-top:.6rem" data-action="live" data-t="${esc(c.t)}">Cargar datos reales</button>
           <div id="liveOut" style="margin-top:.7rem"></div>
-          <p class="note-hint" id="liveHint">Con el token demo de EODHD solo responden AAPL, AMZN, TSLA y VTI.</p>
+          <p class="note-hint" id="liveHint">Precio, capitalización y PER de cualquier símbolo de EE. UU. o Europa, sin token.</p>
         </section>
 
         <section class="card" id="insiderSlot">
@@ -1520,7 +1527,11 @@ async function checkServer() {
   setStatus(`<div class="live-status">Consultando el servidor…</div>`);
   try {
     const health = await api('/api/health');
-    const mode = health.mode === 'demo' ? 'modo demo (token público de EODHD)' : 'token propio configurado';
+    const mode = health.provider === 'tradingview'
+      ? 'fuente gratuita, sin token'
+      : health.mode === 'demo'
+        ? 'modo demo (token público de EODHD)'
+        : 'token propio configurado';
     const extra = health.mode === 'demo' && Array.isArray(health.demoTickers) ? ` · símbolos: ${health.demoTickers.join(', ')}` : '';
     setStatus(`<div class="live-status ok">Servidor operativo · ${esc(health.provider)} · ${esc(mode)}${esc(extra)}</div>`);
   } catch (err) {
@@ -1560,10 +1571,11 @@ async function loadMarket(ticker) {
   out.innerHTML = `<p style="font-size:.8rem;color:var(--dim)">Consultando cotización, perfil y noticias…</p>`;
   if (hint) hint.textContent = '';
 
+  const symbol = providerSymbol(ticker);
   const [quote, fundamentals, news] = await Promise.allSettled([
-    api(`/api/quote?symbol=${encodeURIComponent(ticker)}`),
-    api(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`),
-    api(`/api/news?symbol=${encodeURIComponent(ticker)}&limit=3`)
+    api(`/api/quote?symbol=${encodeURIComponent(symbol)}`),
+    api(`/api/fundamentals?symbol=${encodeURIComponent(symbol)}`),
+    api(`/api/news?symbol=${encodeURIComponent(symbol)}&limit=3`)
   ]);
 
   if (quote.status === 'rejected') {
@@ -1573,6 +1585,8 @@ async function loadMarket(ticker) {
   }
 
   const q = quote.value;
+  const sourceBadge = document.getElementById('liveSource');
+  if (sourceBadge) sourceBadge.textContent = q.source || 'proveedor';
   const f = fundamentals.status === 'fulfilled' ? fundamentals.value : null;
   const items = news.status === 'fulfilled' && news.value && Array.isArray(news.value.items) ? news.value.items : [];
   const currency = (f && f.currency) || 'USD';
@@ -1603,7 +1617,7 @@ async function loadMarket(ticker) {
     </dl>
     ${f && f.name ? `<p class="live-src">${esc(f.name)}${f.sector ? ' · ' + esc(f.sector) : ''}${f.exchange ? ' · ' + esc(f.exchange) : ''}</p>` : ''}
     ${newsHtml}
-    <p class="live-src">Fuente: EODHD · ${q.asOf ? 'datos de ' + esc(timeLabel(q.asOf)) : 'datos de mercado'}${f ? '' : ' · fundamentales no incluidos en el plan'}</p>
+    <p class="live-src">Fuente: ${esc(q.source || 'EODHD')} · ${q.asOf ? 'datos de ' + esc(timeLabel(q.asOf)) : 'datos de mercado'}${f ? '' : ' · fundamentales no incluidos en el plan'}</p>
   </div>`;
 
   if (hint) hint.textContent = 'Estos datos son del proveedor; las notas de los 8 factores siguen siendo análisis propio.';
@@ -1664,7 +1678,7 @@ async function loadInsiders(ticker) {
   if (!out) return;
   out.innerHTML = `<p style="font-size:.8rem;color:var(--dim)">Consultando los Form 4 de la SEC…</p>`;
   try {
-    const data = await api(`/api/insiders?symbol=${encodeURIComponent(ticker)}`);
+    const data = await api(`/api/insiders?symbol=${encodeURIComponent(providerSymbol(ticker))}`);
     out.innerHTML = insiderHtml(data);
   } catch (error) {
     out.innerHTML = `<div class="live-status err">${esc(insiderErrorMessage(error))}</div>`;
@@ -1856,7 +1870,7 @@ function paintSearchPanel() {
   all.hidden = true;
 
   if (searchState.loading) {
-    status.textContent = 'Buscando en EODHD…';
+    status.textContent = 'Buscando…';
     list.innerHTML = '';
     return;
   }
@@ -1931,7 +1945,7 @@ async function fillSearchView(q) {
     return;
   }
   const seq = ++searchViewSeq;
-  box.innerHTML = `<p class="note-hint">Buscando en EODHD…</p>`;
+  box.innerHTML = `<p class="note-hint">Buscando…</p>`;
   try {
     const data = await api(`/api/search?q=${encodeURIComponent(q)}&limit=30`);
     if (seq !== searchViewSeq || !document.getElementById('searchResults')) return;

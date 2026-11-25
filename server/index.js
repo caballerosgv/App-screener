@@ -20,6 +20,7 @@ import {
   MAX_BACKUP_BYTES, createBackupCode, normalizeBackupCode, validateBackupPayload
 } from './backup.mjs';
 import { SEC_USER_AGENT_DEFAULT, InsiderError, createInsiderClient } from './insiders.mjs';
+import { MarketError, createMarketClient } from './free-market.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -63,6 +64,21 @@ const SEC_USER_AGENT = process.env.SEC_USER_AGENT || SEC_USER_AGENT_DEFAULT;
 const insiders = createInsiderClient({ userAgent: SEC_USER_AGENT });
 
 const DEMO_TICKERS = ['AAPL.US', 'AMZN.US', 'TSLA.US', 'VTI.US'];
+
+// Sin token real de EODHD se usa la fuente gratuita (TradingView) para todos los
+// símbolos y mercados; con token, EODHD manda salvo que MARKET_SOURCE=free.
+const MARKET_SOURCE = String(process.env.MARKET_SOURCE || 'auto').toLowerCase();
+const USE_FREE_MARKET = MARKET_SOURCE === 'free' || (MARKET_SOURCE !== 'eodhd' && MODE === 'demo');
+const market = createMarketClient();
+
+async function freeMarket(run) {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof MarketError) throw new HttpError(error.status, error.code, error.message);
+    throw error;
+  }
+}
 
 /* ---------- utilidades ---------- */
 class HttpError extends Error {
@@ -221,6 +237,12 @@ async function getQuote(symbol, refresh) {
     const cached = cacheGet(cacheKey);
     if (cached) return cached;
   }
+  if (USE_FREE_MARKET) {
+    const data = await freeMarket(() => market.quote(symbol));
+    cacheSet(cacheKey, data, TTL.quote);
+    return data;
+  }
+
   const raw = await upstream(`/real-time/${encodeURIComponent(symbol)}`);
   const row = Array.isArray(raw) ? raw[0] : raw;
   if (!row || toNum(row.close) === null) {
@@ -265,6 +287,12 @@ async function getSearch(query, limit, refresh) {
   if (!refresh) {
     const cached = cacheGet(cacheKey);
     if (cached) return cached;
+  }
+
+  if (USE_FREE_MARKET) {
+    const data = await freeMarket(() => market.search(q, Math.max(limit, 10)));
+    cacheSet(cacheKey, data, TTL.search);
+    return data;
   }
 
   const raw = await upstream(`/search/${encodeURIComponent(q)}`, { limit: Math.max(limit, 10) });
@@ -316,6 +344,13 @@ async function getSearch(query, limit, refresh) {
 }
 
 async function getAnalysis(symbol, refresh) {
+  if (USE_FREE_MARKET) {
+    throw new HttpError(
+      501,
+      'analysis_unavailable',
+      'El análisis con cuentas reales necesita un token de EODHD. Con la fuente gratuita hay cotización, fundamentales básicos, buscador y Form 4 de la SEC.'
+    );
+  }
   const cacheKey = `analysis:${symbol}`;
   if (!refresh) {
     const cached = cacheGet(cacheKey);
@@ -340,6 +375,12 @@ async function getFundamentals(symbol, refresh) {
     const cached = cacheGet(cacheKey);
     if (cached) return cached;
   }
+  if (USE_FREE_MARKET) {
+    const data = await freeMarket(() => market.fundamentals(symbol));
+    cacheSet(cacheKey, data, TTL.fundamentals);
+    return data;
+  }
+
   const raw = await upstream(`/v1.1/fundamentals/${encodeURIComponent(symbol)}`, {
     filter: 'General,Highlights'
   });
@@ -387,6 +428,10 @@ async function getNews(symbol, limit, refresh) {
   if (!refresh) {
     const cached = cacheGet(cacheKey);
     if (cached) return cached;
+  }
+  if (USE_FREE_MARKET) {
+    cacheSet(cacheKey, [], TTL.news);
+    return [];
   }
   const raw = await upstream('/news', { s: symbol, limit, offset: 0 });
   const rows = Array.isArray(raw) ? raw : [];
@@ -526,7 +571,8 @@ async function handleApi(url, res, req) {
       provider: PROVIDER,
       mode: MODE,
       keyConfigured: TOKEN !== 'demo',
-      demoTickers: MODE === 'demo' ? DEMO_TICKERS : undefined,
+      provider: USE_FREE_MARKET ? 'tradingview' : 'eodhd',
+      demoTickers: !USE_FREE_MARKET && MODE === 'demo' ? DEMO_TICKERS : undefined,
       supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup'],
       time: new Date().toISOString()
     });

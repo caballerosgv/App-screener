@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { rootPath, makeChecks } from './helpers.mjs';
 import { buildFundamentals } from './fixtures/fundamentals.mjs';
 import { fakeSecFetch } from './fixtures/sec.mjs';
+import { fakeTradingViewFetch } from './fixtures/tradingview.mjs';
 
 const SERVER_ENTRY = pathToFileURL(rootPath('server/index.js')).href;
 let imports = 0;
@@ -25,9 +26,10 @@ function fakeResponse(status, body) {
  * y su propio entorno. Al importarlo no escucha: las pruebas hablan con él
  * emitiendo la petición sobre el handler, sin abrir ningún socket.
  */
-async function loadServer({ token = 'demo', base = 'https://provider.test/api', dataDir } = {}) {
+async function loadServer({ token = 'demo', base = 'https://provider.test/api', dataDir, marketSource = 'eodhd' } = {}) {
   process.env.EODHD_API_TOKEN = token;
   process.env.EODHD_BASE_URL = base;
+  process.env.MARKET_SOURCE = marketSource;
   process.env.MOAT_DATA_DIR = dataDir || mkdtempSync(join(tmpdir(), 'moat-datos-'));
   imports += 1;
   const { server } = await import(`${SERVER_ENTRY}?caso=${imports}`);
@@ -397,6 +399,43 @@ test('/api/insiders consulta SEC, solo admite EE. UU. y cachea', async () => {
 
   const europea = await request(server, '/api/insiders?symbol=ASML.AS', { ip: '10.8.0.4' });
   check('una empresa europea → 400 unsupported_market', europea.status === 400 && europea.body.error.code === 'unsupported_market', `${europea.status}/${europea.body.error.code}`);
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('sin token real la API usa la fuente gratuita para todos los mercados', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer({ marketSource: 'auto' });
+  const tv = fakeTradingViewFetch();
+  globalThis.fetch = tv.fetchImpl;
+
+  const health = await request(server, '/api/health', { ip: '10.9.0.1' });
+  check('el proveedor es TradingView', health.body.provider === 'tradingview', String(health.body.provider));
+  check('ya no lista los símbolos del token demo', health.body.demoTickers === undefined, JSON.stringify(health.body.demoTickers));
+
+  const apple = await request(server, '/api/quote?symbol=AAPL', { ip: '10.9.0.2' });
+  check('cotiza AAPL', apple.status === 200 && apple.body.price === 200, `${apple.status}/${apple.body.price}`);
+  check('normaliza el símbolo y la fuente', apple.body.symbol === 'AAPL.US' && apple.body.source === 'TradingView', `${apple.body.symbol}/${apple.body.source}`);
+
+  const vti = await request(server, '/api/quote?symbol=VTI', { ip: '10.9.0.3' });
+  check('cotiza un ETF que el token demo no cubre', vti.status === 200 && vti.body.price === 300, `${vti.status}/${vti.body.price}`);
+
+  const asml = await request(server, '/api/quote?symbol=ASML.AS', { ip: '10.9.0.4' });
+  check('cotiza un valor europeo', asml.status === 200 && asml.body.price === 900, `${asml.status}/${asml.body.price}`);
+
+  const fund = await request(server, '/api/fundamentals?symbol=ASML.AS', { ip: '10.9.0.5' });
+  check('fundamentales básicos sin token', fund.status === 200 && fund.body.marketCap === 350_000_000_000, `${fund.status}/${fund.body.marketCap}`);
+
+  const search = await request(server, '/api/search?q=ASML', { ip: '10.9.0.6' });
+  check('el buscador funciona sin token', search.status === 200 && search.body.results.length === 3 && search.body.source === 'TradingView', `${search.status}/${search.body.results.length}`);
+
+  const analysis = await request(server, '/api/analysis?symbol=AAPL', { ip: '10.9.0.7' });
+  check('el análisis avisa de que necesita EODHD', analysis.status === 501 && analysis.body.error.code === 'analysis_unavailable', `${analysis.status}/${analysis.body.error.code}`);
+
+  const news = await request(server, '/api/news?symbol=AAPL', { ip: '10.9.0.8' });
+  check('las noticias quedan vacías, sin error', news.status === 200 && Array.isArray(news.body.items) && news.body.items.length === 0, `${news.status}`);
+
+  check('el escáner se consulta una vez por símbolo', tv.scans().length === 3, String(tv.scans().length));
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
