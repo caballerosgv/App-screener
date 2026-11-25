@@ -62,7 +62,8 @@ function remoteCompany(symbol) {
       cap: saved.cap ?? null,
       description: saved.description || null,
       moatRating: saved.moatRating || 'None',
-      region: saved.region || (key.endsWith('.US') ? 'US' : 'EU'),
+      // Un símbolo sin sufijo se resuelve como .US en el proxy: cuenta como EE. UU.
+      region: saved.region || (key.endsWith('.US') || !key.includes('.') ? 'US' : 'EU'),
       scores: FRAMEWORK.map(() => 5),
       notes: FRAMEWORK.map(() => ''),
       f1: null,
@@ -463,6 +464,9 @@ function metricCard(label, value, cls = '') {
 /* ---------- notas: automáticas, tuyas y de demostración ---------- */
 // Valores europeos que en la app van sin sufijo de bolsa: su listado real es local.
 const PROVIDER_SUFFIX = { ASML: 'AS', SAP: 'DE' };
+// Última respuesta de directivos por ticker, para repintarla sin volver a la SEC.
+const insiderCache = new Map();
+const insiderPending = new Map();
 
 const providerSymbol = (ticker) => {
   if (ticker.includes('.')) return ticker;
@@ -737,7 +741,7 @@ function renderCompany(ticker, openIndex = 0) {
   const news = relatedNews(c);
   const watched = state.checks[c.t] || {};
   const m = analysis && analysis.inputs ? analysis.inputs : c.metrics;
-  const usListed = /\.US$/i.test(providerSymbol(c.t)) && (!c.region || c.region === 'US');
+  const usListed = /\.US$/i.test(providerSymbol(c.t)) && (!c.region || c.region === 'US' || c.remote);
 
   const analysisSource = analysis ? esc(analysis.source || 'EODHD') : 'EODHD';
   const sourceText =
@@ -867,13 +871,16 @@ function renderCompany(ticker, openIndex = 0) {
           <div class="panel-title">Directivos <span>SEC</span></div>
           <p style="font-size:.82rem;color:var(--muted)">Compras y ventas de directivos de los últimos 12 meses según los Form 4 de la SEC. Gratis, sin token y solo para empresas de EE. UU.</p>
           ${usListed
-            ? `<button class="btn btn-sm" style="margin-top:.6rem" data-action="insiders" data-t="${esc(c.t)}">Cargar movimientos</button>`
+            ? `<button class="btn btn-sm" style="margin-top:.6rem" data-action="insiders" data-t="${esc(c.t)}">Ver movimientos</button>`
             : `<p style="font-size:.82rem;color:var(--muted);margin-top:.5rem">Este valor no presenta Form 4: los movimientos de directivos solo se publican en EE. UU.</p>`}
           <div id="insiderOut" style="margin-top:.7rem"></div>
         </section>
       </aside>
     </div>
   `;
+
+  // La señal de directivos se carga sola en las fichas de EE. UU. (la SEC cachea 1 h en el servidor).
+  if (usListed) loadInsiders(c.t);
 
   if (c.remote) {
     if (!analysis && !state.analysisTried.has(c.t)) loadRemoteCompany(c.t);
@@ -1755,9 +1762,17 @@ function insiderDate(iso) {
   return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+const INSIDER_SIGNAL = {
+  compra: 'Compras de varios directivos',
+  venta: 'Ventas sin ninguna compra',
+  neutro: 'Sin señal clara'
+};
+
 function insiderHtml(data) {
   const summary = data.summary || {};
   const rows = Array.isArray(data.transactions) ? data.transactions.slice(0, 8) : [];
+  const neto = summary.net_value_usd;
+  const netoTexto = neto === null || neto === undefined ? '—' : `${neto >= 0 ? '+' : '−'}${compactMoney(Math.abs(neto))} US$`;
 
   const list = rows.length
     ? `<div class="live-news">${rows.map((tx) => `<a href="${esc(tx.url || '#')}" target="_blank" rel="noopener noreferrer">
@@ -1767,9 +1782,11 @@ function insiderHtml(data) {
     : `<p class="note-hint">${esc(data.message || 'Sin operaciones de compra o venta en el periodo.')}</p>`;
 
   return `<div class="live-panel">
+    ${summary.signal ? `<p class="insider-signal ${esc(summary.signal)}">${esc(INSIDER_SIGNAL[summary.signal] || 'Sin señal clara')} · ${esc(data.period || 'últimos 12 meses')}</p>` : ''}
     <dl class="live-metrics">
-      <div><dt>Compras</dt><dd>${summary.purchase_count || 0}${summary.purchase_value_usd ? `<small>${insiderMoney(summary.purchase_value_usd)}</small>` : ''}</dd></div>
-      <div><dt>Ventas</dt><dd>${summary.sale_count || 0}${summary.sale_value_usd ? `<small>${insiderMoney(summary.sale_value_usd)}</small>` : ''}</dd></div>
+      <div><dt>Compras</dt><dd>${summary.purchase_count || 0}${summary.purchase_value_usd ? `<small>${compactMoney(summary.purchase_value_usd)} US$</small>` : ''}</dd></div>
+      <div><dt>Ventas</dt><dd>${summary.sale_count || 0}${summary.sale_value_usd ? `<small>${compactMoney(summary.sale_value_usd)} US$</small>` : ''}</dd></div>
+      <div><dt>Neto</dt><dd>${esc(netoTexto)}</dd></div>
       <div><dt>Ventas en plan 10b5-1</dt><dd>${summary.sale_plan_10b5_1_count || 0}</dd></div>
     </dl>
     ${list}
@@ -1794,13 +1811,30 @@ function insiderErrorMessage(error) {
 async function loadInsiders(ticker) {
   const out = document.getElementById('insiderOut');
   if (!out) return;
-  out.innerHTML = `<p style="font-size:.8rem;color:var(--dim)">Consultando los Form 4 de la SEC…</p>`;
-  try {
-    const data = await api(`/api/insiders?symbol=${encodeURIComponent(providerSymbol(ticker))}`);
-    out.innerHTML = insiderHtml(data);
-  } catch (error) {
-    out.innerHTML = `<div class="live-status err">${esc(insiderErrorMessage(error))}</div>`;
+  if (insiderCache.has(ticker)) {
+    out.innerHTML = insiderCache.get(ticker);
+    return;
   }
+  if (insiderPending.has(ticker)) return;
+  out.innerHTML = `<p style="font-size:.8rem;color:var(--dim)">Consultando los Form 4 de la SEC…</p>`;
+  const pending = (async () => {
+    try {
+      const data = await api(`/api/insiders?symbol=${encodeURIComponent(providerSymbol(ticker))}`);
+      const html = insiderHtml(data);
+      insiderCache.set(ticker, html);
+      const target = document.getElementById('insiderOut');
+      if (target && currentCompanyTicker() === ticker) target.innerHTML = html;
+    } catch (error) {
+      const target = document.getElementById('insiderOut');
+      if (target && currentCompanyTicker() === ticker) {
+        target.innerHTML = `<div class="live-status err">${esc(insiderErrorMessage(error))}</div>`;
+      }
+    } finally {
+      insiderPending.delete(ticker);
+    }
+  })();
+  insiderPending.set(ticker, pending);
+  return pending;
 }
 
 /* ---------- eventos globales ---------- */

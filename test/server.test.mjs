@@ -512,6 +512,10 @@ test('/api/insiders consulta SEC, solo admite EE. UU. y cachea', async () => {
   check('responde 200', primera.status === 200, String(primera.status));
   check('normaliza el símbolo y marca la fuente', primera.body.symbol === 'AAPL.US' && primera.body.source === 'SEC EDGAR Form 4', `${primera.body.symbol}/${primera.body.source}`);
   check('devuelve el resumen de compras y ventas', primera.body.summary.purchase_count === 1 && primera.body.summary.sale_count === 4, JSON.stringify(primera.body.summary));
+  const resumen = primera.body.summary;
+  const netoEsperado = (resumen.purchase_value_usd || 0) - (resumen.sale_value_usd || 0);
+  check('calcula el neto comprado menos vendido', typeof resumen.net_value_usd === 'number' && resumen.net_value_usd === netoEsperado, `${resumen.net_value_usd}/${netoEsperado}`);
+  check('una compra y cuatro ventas no es señal de venta', primera.body.summary.signal === 'neutro', primera.body.summary.signal);
 
   const llamadasTrasPrimera = sec.calls.length;
   const segunda = await request(server, '/api/insiders?symbol=AAPL', { ip: '10.8.0.2' });

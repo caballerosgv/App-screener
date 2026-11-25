@@ -609,6 +609,15 @@ textarea.note::placeholder { color: var(--dim); }
   .scale-row p { grid-column: 1 / -1; }
   .btn span.lbl { display: none; }
 }
+/* ---------- señal de directivos ---------- */
+.insider-signal {
+  display: inline-block; margin: 0 0 .5rem; padding: .18rem .5rem; border-radius: 6px;
+  font-size: .68rem; font-weight: 600; letter-spacing: .02em;
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--muted);
+}
+.insider-signal.compra { color: var(--great); border-color: rgba(94, 234, 212, .35); background: rgba(94, 234, 212, .08); }
+.insider-signal.venta { color: var(--warn); border-color: rgba(226, 189, 125, .35); background: rgba(226, 189, 125, .08); }
+
 /* ---------- explorador de mercado ---------- */
 .screen-card .toolbar-row { flex-wrap: wrap; }
 .screen-link {
@@ -619,6 +628,8 @@ textarea.note::placeholder { color: var(--dim); }
 .screen-link small { color: var(--dim); font-size: .7rem; }
 .screen-link:hover strong { color: var(--accent); }
 .screen-card table { width: 100%; }
+.screen-card td.num, .screen-card th.num { white-space: nowrap; }
+.screen-card td:first-child small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* ---------- semáforo de fuentes ---------- */
 .src-health { margin-top: .7rem; }

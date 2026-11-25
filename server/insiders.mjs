@@ -413,6 +413,15 @@ export function createInsiderClient({
     const purchases = unique.filter((tx) => tx.code === 'P');
     const sales = unique.filter((tx) => tx.code === 'S');
     const sum = (rows) => (rows.some((tx) => tx.value_usd !== null) ? rows.reduce((acc, tx) => acc + (tx.value_usd || 0), 0) : null);
+    const purchaseValue = sum(purchases);
+    const saleValue = sum(sales);
+    const netValue = purchaseValue === null && saleValue === null ? null : (purchaseValue || 0) - (saleValue || 0);
+    // Señal orientativa: compras de varios directivos, o ventas sin ninguna compra.
+    const signal = purchases.length >= 2 && (netValue === null || netValue > 0)
+      ? 'compra'
+      : purchases.length === 0 && sales.length >= 3
+        ? 'venta'
+        : 'neutro';
 
     return {
       status: 'ok',
@@ -425,8 +434,10 @@ export function createInsiderClient({
       summary: {
         purchase_count: purchases.length,
         sale_count: sales.length,
-        purchase_value_usd: sum(purchases),
-        sale_value_usd: sum(sales),
+        purchase_value_usd: purchaseValue,
+        sale_value_usd: saleValue,
+        net_value_usd: netValue,
+        signal,
         sale_plan_10b5_1_count: sales.filter((tx) => tx.plan_10b5_1 === true).length,
         sale_no_plan_count: sales.filter((tx) => tx.plan_10b5_1 === false).length,
         sale_plan_unknown_count: sales.filter((tx) => tx.plan_10b5_1 === null).length

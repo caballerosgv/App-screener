@@ -203,7 +203,7 @@ function toProviderSymbol(raw) {
 }
 
 /* ---------- caché y límite de peticiones ---------- */
-const TTL = { quote: 60_000, fundamentals: 86_400_000, news: 600_000, search: 86_400_000, insiders: 3_600_000 };
+const TTL = { quote: 60_000, fundamentals: 86_400_000, news: 600_000, search: 86_400_000, insiders: 3_600_000, screen: 600_000 };
 
 /** Entero acotado entre min y max, con valor por defecto si no es un número. */
 function clampInt(value, min, max, fallback) {
@@ -853,7 +853,7 @@ async function handleApi(url, res, req) {
     try {
       const data = await freeMarket(() => screenMarket({ market, sector, minCap, limit }));
       health.record('TradingView', { ok: true, ms: Date.now() - started });
-      cacheSet(cacheKey, data, TTL.search);
+      cacheSet(cacheKey, data, TTL.screen);
       sendJson(res, 200, data);
     } catch (error) {
       health.record('TradingView', { ok: false, ms: Date.now() - started, error });

@@ -6,6 +6,7 @@ Screener para buscar y estudiar acciones de **EE. UU. y Europa** con un marco de
 
 - **Buscador de cualquier valor**: el buscador de la cabecera consulta el catálogo de símbolos de EODHD (más de 60 bolsas) y abre una ficha con datos reales para cualquier empresa o ETF de EE. UU. o Europa, no solo las 24 cargadas.
 - **Screener de calidad**: 24 empresas (12 estadounidenses y 12 europeas) filtrables por mercado, sector y tipo de moat, ordenables por puntuación, crecimiento, ROIC, PER o capitalización.
+- **Explorar el mercado**: además del universo curado, pide al escáner los mayores valores de EE. UU. o Europa con sus ratios, los filtra por sector y capitalización y los ordena por la nota aproximada de los 8 factores. Sin token.
 - **Ficha de empresa**: tesis, riesgos y catalizadores, las cinco preguntas del MOAT respondidas, los 8 factores con su peso y puntuación, métricas clave, checklist de estudio y notas del analista (guardadas en el dispositivo).
 - **Notas automáticas y notas propias**: cada factor muestra si su nota es automática (calculada con las cuentas reales de EODHD), de demostración, neutral por falta de datos o puesta por ti; al abrir un factor se ve la rúbrica completa (indicador, valor, banda y puntos) y puedes sobrescribir la nota con tu criterio y un motivo.
 - **Comparador**: dos empresas lado a lado con radar superpuesto, los 8 factores (con la ganadora de cada uno) y una tabla de métricas clave que marca el mejor valor de cada fila.
@@ -47,6 +48,16 @@ Vistas de la app real, tomadas del build local. Los datos de las 24 empresas son
 
 ![Tarjeta de datos de mercado con titulares de Microsoft](artifacts/datos-gratis-msft.png)
 
+**Explorador de mercado** — valores reales de EE. UU. ordenados por la nota aproximada de los 8 factores (misma tabla a 390 px, sin scroll horizontal).
+
+![Explorador de mercado con valores reales](artifacts/explorador-mercado.png)
+
+**Ficha sin token** — nota aproximada con ratios y SEC, y señal de directivos cargada sola desde los Form 4.
+
+![Ficha de Apple con nota aproximada y fuentes gratuitas](artifacts/ficha-gratis-apl.png)
+
+![Señal de directivos de Coca-Cola](artifacts/ficha-directivos.png)
+
 **Directivos** — compras y ventas de los Form 4 de la SEC, con el resumen del periodo y el plan 10b5-1.
 
 ![Tarjeta de directivos con las ventas reales de Microsoft](artifacts/directivos-msft.png)
@@ -72,7 +83,9 @@ Al elegir un resultado se abre `#/empresa/ASML.AS`. Si el ticker no está entre 
 
 Como esas empresas no tienen análisis editorial, la ficha muestra **Perfil de la empresa** en lugar de la tesis, los riesgos y los catalizadores de las 24 de demostración.
 
-> **Sin token**: el buscador, la cotización, los fundamentales básicos y los titulares salen de fuentes gratuitas, que cubren EE. UU. y las principales bolsas europeas. Solo `/api/analysis` (notas con las cuentas reales) necesita `EODHD_API_TOKEN`.
+> **Sin token**: el buscador, la cotización, los fundamentales, los titulares, los directivos, el explorador de mercado y la nota de los 8 factores funcionan con fuentes gratuitas. La nota usa los ratios públicos de TradingView y, en EE. UU., las series XBRL de la SEC: es una **aproximación** (7 de 8 factores en EE. UU., 5 fuera) que la ficha marca como tal. Con `EODHD_API_TOKEN` se calcula además con los estados financieros completos.
+
+**Fuentes gratuitas** — cotización en cadena TradingView → Nasdaq (solo EE. UU.) → Yahoo Finance, con aviso de qué fuente respondió; fundamentales y ratios del escáner de TradingView; cuentas anuales de la SEC (XBRL company facts) para las empresas de EE. UU.; titulares del RSS de Yahoo Finance con Google News de respaldo; Form 4 de la SEC para los directivos. `npm run canary` comprueba a diario que las tres fuentes de cotización siguen respondiendo con el formato esperado.
 
 ## Notas automáticas: la rúbrica
 
@@ -124,10 +137,13 @@ La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expo
 | `GET /api/quote?symbol=AAPL` | cotización normalizada | 60 s |
 | `GET /api/fundamentals?symbol=ASML.AS` | perfil, sector, capitalización, PER, ROE… | 24 h |
 | `GET /api/news?symbol=MSFT&limit=10` | titulares con enlace y sentimiento (RSS de Yahoo y Google sin token; EODHD con token) | 10 min |
-| `GET /api/analysis?symbol=AAPL.US` | nota y rúbrica de los 8 factores con las cuentas reales | 24 h |
+| `GET /api/analysis?symbol=AAPL.US` | nota y rúbrica de los 8 factores (EODHD con token; aproximada con TradingView + SEC XBRL sin token) | 24 h |
+| `GET /api/screen?market=US&sector=tech&minCap=1000000000&limit=40` | mayores valores del mercado con sus ratios y la nota aproximada, ordenados por calidad | 10 min |
+| `GET /api/status` | semáforo de cada fuente: última respuesta buena, latencia y último error | — |
 | `GET /api/insiders?symbol=AAPL.US&months=12&limit=12` | compras y ventas de directivos según los Form 4 de la SEC (sin token) | 1 h |
-| `POST /api/backup` | guarda una copia del trabajo y devuelve un código corto (o actualiza la del código indicado) | — |
-| `GET /api/backup?code=ABCD-EFGH` | devuelve la copia guardada con ese código | — |
+| `POST /api/backup` | guarda una copia del trabajo y devuelve un código corto (o actualiza la del código indicado); caduca a los 30 días | — |
+| `GET /api/backup?code=ABCD-EFGH` | devuelve la copia guardada con ese código (410 si caducó) | — |
+| `DELETE /api/backup?code=ABCD-EFGH` | borra la copia del servidor para siempre | — |
 
 ### Movimientos de directivos (SEC, gratis)
 
@@ -136,6 +152,7 @@ La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expo
 - Solo cubre empresas de **EE. UU.**; para un valor europeo responde `unsupported_market` (400).
 - Descarta los códigos que no son P/S, ignora la tabla de derivados y no duplica una operación repetida en una enmienda 4/A (se queda con la presentación más reciente).
 - Cada formulario cuesta una sola petición: se descarga directamente el XML de la operación a partir del documento principal de la presentación, y solo si no lo es se mira el índice (sin pedir `FilingSummary.xml`). La respuesta se cachea 1 h; con `limit=12` son ~14 peticiones a la SEC, con 120 ms entre formularios, así que en la app se pide al pulsar *Cargar movimientos* en la ficha, no al abrirla.
+- El resumen añade el **neto comprado menos vendido** y una señal orientativa (`compra` si hay dos o más directivos comprando con neto positivo, `venta` si hay tres o más ventas y ninguna compra, `neutro` en el resto). La ficha la carga sola al abrirla, en una sola petición cacheada 1 h.
 - Son operaciones de directivos, **no** posiciones institucionales 13F.
 
 ### Puesta en marcha
@@ -156,7 +173,9 @@ La app empaquetada no tiene servidor local: edita `public/config.js` y apunta `w
 ### Seguridad y errores
 
 - El token se lee de `.env` (fuera de Git) y nunca se devuelve en ninguna respuesta ni se registra en logs.
-- Solo peticiones GET, límite de 120 peticiones/minuto por IP, validación de símbolos y caché para no gastar cuota.
+- Solo peticiones GET (más POST/DELETE en `/api/backup`), límite de 120 peticiones/minuto por IP y 20 operaciones de copia por hora e IP, validación de símbolos y caché para no gastar cuota.
+- Las copias del servidor caducan a los 30 días (`BACKUP_TTL_DAYS`), se borran solas al caducar y se pueden borrar a mano desde la app o con `DELETE /api/backup`.
+- `/api/status` expone el semáforo de fuentes (verde, degradado, caído) y el diálogo *Datos en vivo* lo muestra con hora y latencia.
 - Errores normalizados con código y mensaje: `invalid_symbol` (400), `not_found` (404), `rate_limited` (429), `upstream_auth` / `upstream_unreachable` / `upstream_invalid` (502), `upstream_rate_limit` (503), `upstream_timeout` (504).
 
 ## Pruebas
@@ -180,10 +199,15 @@ npm test
 | `test/nasdaq.test.mjs` | Respaldo de Nasdaq: parseo de importes, cierre de la sesión frente a after-hours, ETF, símbolo inexistente y errores 429/500. |
 | `test/free-market.test.mjs` | Fuente gratuita: resolución de tickers (EE. UU., Euronext, Xetra, SIX, OMX), cotización, fundamentales, buscador con sufijos de la app y errores del proveedor. |
 | `test/insiders.test.mjs` | Insiders: parser XML, Form 4 (solo P/S, derivados ignorados, plan 10b5-1), resumen, enmiendas 4/A, límites, caché del directorio y errores de la SEC, sin red. |
+| `test/free-analysis.test.mjs` | Nota gratis: 7 de 8 factores con ratios + XBRL, 5 sin XBRL, catalizadores neutrales, versión de rúbrica y `null` si no hay ningún dato. |
+| `test/sec-xbrl.test.mjs` | Series de la SEC: un valor por ejercicio, trimestres fuera, última presentación, CAGR, márgenes, caja libre, dilución, caché del listado y `null` fuera de EE. UU. |
+| `test/free-screener.test.mjs` | Explorador: filtro por bolsa y país, capitalización mínima, sector, mapeo de símbolos, descarte de ETF y mercados no soportados, orden por nota y errores. |
+| `test/screen-ui.test.mjs` | Tarjeta del explorador en el screener: filtros que viajan, filas pintadas, nota y ratios visibles y enlace a la ficha. |
+| `test/health.test.mjs` | Semáforo: verde, degradado tras un fallo, caído sin respuesta previa, recuperación, latencias y orden del informe. |
 | `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial, guardado y recuperación en el servidor con código, y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 513 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 637 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 

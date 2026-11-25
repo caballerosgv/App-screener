@@ -100,6 +100,8 @@ export function toResult(row) {
   if (!row || !row.code || !row.exchange) return null;
   if (row.type && String(row.type).toLowerCase() !== 'stock') return null;
   if (String(row.code).includes('_')) return null; // clases de acción: símbolo ambiguo
+  // El escáner marca como «stock» cosas que no lo son: se descartan por nombre.
+  if (/depositary|preferred|pfd|warrant|rights|notes due|\bunits?\b/i.test(String(row.name || row.description || ''))) return null;
   const country = countryCode(row.country);
   if (!country) return null;
   const suffix = suffixFor(row.exchange, country);
