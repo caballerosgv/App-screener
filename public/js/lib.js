@@ -80,3 +80,95 @@ export const store = {
     }
   }
 };
+
+/* ---------- copia de seguridad ---------- */
+
+export const BACKUP_VERSION = 1;
+export const BACKUP_KEYS = ['watchlist', 'notes', 'checks', 'newsRead', 'auto', 'overrides', 'remote'];
+
+const BACKUP_LABELS = {
+  watchlist: 'seguimiento',
+  notes: 'notas',
+  checks: 'checklists',
+  newsRead: 'noticias leídas',
+  auto: 'análisis automáticos',
+  overrides: 'sobrescrituras',
+  remote: 'perfiles remotos'
+};
+
+const BACKUP_SHAPES = {
+  watchlist: 'array',
+  newsRead: 'array',
+  notes: 'object',
+  checks: 'object',
+  auto: 'object',
+  overrides: 'object',
+  remote: 'object'
+};
+
+const countOf = (value) => (Array.isArray(value) ? value.length : Object.keys(value || {}).length);
+
+/** Copia exportable con versión y fecha, a partir del estado actual. */
+export function buildBackup(data, { now = new Date() } = {}) {
+  return {
+    app: 'moat',
+    version: BACKUP_VERSION,
+    exportedAt: now.toISOString(),
+    data: Object.fromEntries(
+      BACKUP_KEYS.filter((key) => data && data[key] !== undefined).map((key) => [key, data[key]])
+    )
+  };
+}
+
+/** Resumen legible: [{ key, label, count }] de las secciones incluidas. */
+export function describeBackup(backup) {
+  const data = backup && backup.data ? backup.data : backup || {};
+  return BACKUP_KEYS.filter((key) => data[key] !== undefined).map((key) => ({
+    key,
+    label: BACKUP_LABELS[key],
+    count: countOf(data[key])
+  }));
+}
+
+/** Valida y normaliza una copia importada. Nunca lanza: devuelve { ok, error } o { ok, data }. */
+export function parseBackup(text) {
+  let raw;
+  try {
+    raw = JSON.parse(String(text));
+  } catch {
+    return { ok: false, error: 'El archivo no es un JSON válido.' };
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'El archivo no tiene el formato de una copia de MOAT.' };
+  }
+
+  const version = Number(raw.version) || 1;
+  if (version > BACKUP_VERSION) {
+    return { ok: false, error: `La copia es de una versión más nueva (v${version}).` };
+  }
+
+  const data = raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data) ? raw.data : raw;
+  const keys = BACKUP_KEYS.filter((key) => data[key] !== undefined);
+  if (!keys.length) {
+    return { ok: false, error: 'La copia no contiene notas, sobrescrituras, perfiles ni seguimiento.' };
+  }
+
+  for (const key of keys) {
+    const value = data[key];
+    const valid =
+      BACKUP_SHAPES[key] === 'array'
+        ? Array.isArray(value) && value.every((item) => typeof item === 'string')
+        : value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (!valid) {
+      return { ok: false, error: `La sección «${BACKUP_LABELS[key]}» no tiene el formato esperado.` };
+    }
+  }
+
+  return {
+    ok: true,
+    version,
+    exportedAt: typeof raw.exportedAt === 'string' ? raw.exportedAt : null,
+    keys,
+    data: Object.fromEntries(keys.map((key) => [key, data[key]]))
+  };
+}

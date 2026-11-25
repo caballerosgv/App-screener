@@ -34,7 +34,7 @@ export function offlineFetch() {
  * Monta la app real (public/index.html + public/js/app.js) en jsdom.
  * Hay que llamarla una vez por archivo de prueba: el módulo guarda estado global.
  */
-export async function mountApp({ hash = '#/screener', fetchImpl = offlineFetch() } = {}) {
+export async function mountApp({ hash = '#/screener', fetchImpl = offlineFetch(), storage = {} } = {}) {
   const html = readFileSync(rootPath('public/index.html'), 'utf8');
   const errors = [];
   const virtualConsole = new VirtualConsole().on('jsdomError', (error) => {
@@ -46,7 +46,8 @@ export async function mountApp({ hash = '#/screener', fetchImpl = offlineFetch()
     virtualConsole
   });
   const w = dom.window;
-  for (const key of ['window', 'document', 'location', 'localStorage', 'HTMLElement', 'Node', 'MouseEvent', 'Event', 'CustomEvent']) {
+  for (const [key, value] of Object.entries(storage)) w.localStorage.setItem(key, JSON.stringify(value));
+  for (const key of ['window', 'document', 'location', 'localStorage', 'HTMLElement', 'Node', 'MouseEvent', 'Event', 'CustomEvent', 'Blob', 'File', 'FileReader', 'URL']) {
     globalThis[key] = w[key];
   }
   w.scrollTo = () => {};

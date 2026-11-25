@@ -10,7 +10,7 @@ Screener para buscar y estudiar acciones de **EE. UU. y Europa** con un marco de
 - **Notas automáticas y notas propias**: cada factor muestra si su nota es automática (calculada con las cuentas reales de EODHD), de demostración, neutral por falta de datos o puesta por ti; al abrir un factor se ve la rúbrica completa (indicador, valor, banda y puntos) y puedes sobrescribir la nota con tu criterio y un motivo.
 - **Comparador**: dos empresas lado a lado con radar superpuesto, los 8 factores (con la ganadora de cada uno) y una tabla de métricas clave que marca el mejor valor de cada fila.
 - **Screener de noticias**: titulares filtrables por mercado, categoría, sentimiento e impacto, con enlaces a la ficha de cada empresa.
-- **Seguimiento**: lista propia de empresas con el avance del análisis.
+- **Seguimiento**: lista propia de empresas con el avance del análisis y copia de seguridad en JSON de todo tu trabajo.
 - **Guía de los 8 factores**: preguntas, métricas y señales verdes/rojas de cada factor, escala de puntuación y proceso en 6 pasos.
 
 > Los datos de perfil de las 24 empresas incluidas son de **demostración**. Las notas de los 8 factores pueden recalcularse con las cuentas reales de EODHD (ver *Notas automáticas*), pero la cotización, el perfil y las noticias reales también se piden a EODHD a través del proxy del servidor. Verifica siempre los datos con las cuentas oficiales antes de invertir.
@@ -91,7 +91,7 @@ En la cabecera de cada factor aparece el origen de la nota: **automática**, **t
 - escribir una nota de 0 a 10 y un motivo, y pulsar **Guardar**: esa nota prevalece sobre la automática y el total, el radar y el screener se recalculan con ella;
 - pulsar **Quitar** para volver a la nota automática. La rúbrica sigue visible como evidencia, junto a la comparación «Automática 9,8 · tu nota 3,0».
 
-Las notas propias y los análisis se guardan en `localStorage` de este dispositivo. En modo demo solo se calculan las empresas que permite el token público (AAPL, AMZN, TSLA, VTI); con `EODHD_API_TOKEN` configurado, cualquier empresa del universo.
+Las notas propias y los análisis se guardan en `localStorage` de este dispositivo, con una **copia de seguridad** en **Seguimiento → Copia de seguridad**: un JSON con las notas, las sobrescrituras, los perfiles remotos, los checklists, los análisis automáticos, las noticias leídas y el seguimiento. Lleva `version` y `exportedAt`, y al importarlo se sustituyen solo las secciones que incluya el archivo, avisando de lo aplicado; un archivo inválido o de una versión más nueva se rechaza sin tocar los datos. En modo demo solo se calculan las empresas que permite el token público (AAPL, AMZN, TSLA, VTI); con `EODHD_API_TOKEN` configurado, cualquier empresa del universo.
 
 ## Datos de mercado: por qué EODHD y cómo se conecta
 
@@ -144,9 +144,10 @@ npm test
 | `test/overrides.test.mjs` | Rúbrica automática, badges de origen, sobrescritura de notas, recálculo del total y persistencia. |
 | `test/search.test.mjs` | Buscador de símbolos (panel, teclado, vista de resultados, error de token demo) y ficha de valores fuera del universo. |
 | `test/server.test.mjs` | Servidor y proxy: validación y normalización de símbolos, códigos de error normalizados, caché, límite por IP y `/api/health`, con el proveedor simulado y sin red. |
+| `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 284 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 321 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 

@@ -305,6 +305,9 @@ tbody tr:last-child td { border-bottom: 0; }
 .card h4 { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 1rem 0 .45rem; font-weight: 600; }
 .card p { font-size: .875rem; color: #c6d2e2; }
 .card p + p { margin-top: .6rem; }
+
+.backup-status { margin-top: .7rem; font-size: .82rem; color: var(--muted); min-height: 1.1em; }
+.backup-status.error { color: var(--bad); }
 .prose-list { margin: .2rem 0 0; padding-left: 1.05rem; color: #c6d2e2; font-size: .86rem; }
 .prose-list li { margin-bottom: .35rem; }
 .prose-list li::marker { color: var(--accent); }

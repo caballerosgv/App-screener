@@ -1,6 +1,7 @@
 import { COMPANIES, NEWS, FRAMEWORK, PROCESS, SCALE, MOAT_TYPES } from './data.js';
 import {
-  weightedScore, band, avg, pct, num, cap, mult, dateLabel, esc, tone, store, REGION_LABEL
+  weightedScore, band, avg, pct, num, cap, mult, dateLabel, esc, tone, store, REGION_LABEL,
+  buildBackup, parseBackup, describeBackup
 } from './lib.js';
 
 const SHORT = ['MOAT', 'Dirección', 'Crecimiento', 'Rentabilidad', 'Balance', 'Valoración', 'Riesgo', 'Catalizadores'];
@@ -1133,12 +1134,122 @@ function renderNews() {
   document.getElementById('watchOnly').addEventListener('change', (e) => { state.news.watchOnly = e.target.checked; renderList(); });
 }
 
+/* ---------- copia de seguridad ---------- */
+const BACKUP_AT = 'backupAt';
+
+function backupData() {
+  return {
+    watchlist: [...state.watchlist],
+    notes: state.notes,
+    checks: state.checks,
+    newsRead: [...state.newsRead],
+    auto: state.auto,
+    overrides: state.overrides,
+    remote: state.profiles
+  };
+}
+
+const backupSummary = (entries) => entries.map((entry) => `${entry.label}: ${entry.count}`).join(' · ');
+
+function setBackupStatus(message, isError = false) {
+  const el = document.getElementById('backupStatus');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle('error', isError);
+}
+
+function exportBackup() {
+  const payload = buildBackup(backupData());
+  const text = JSON.stringify(payload, null, 2);
+  const name = `moat-copia-${payload.exportedAt.slice(0, 10)}.json`;
+  const urlApi = window.URL;
+  try {
+    const url = urlApi.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    const timer = setTimeout(() => {
+      if (typeof urlApi.revokeObjectURL === 'function') urlApi.revokeObjectURL(url);
+    }, 1000);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  } catch {
+    setBackupStatus('Este navegador no permite descargar el archivo; abre la app en el navegador para exportar.', true);
+    return;
+  }
+  store.set(BACKUP_AT, payload.exportedAt);
+  const message = `Copia exportada: ${name}. ${backupSummary(describeBackup(payload))}.`;
+  renderWatchlist();
+  setBackupStatus(message);
+}
+
+async function importBackup(file) {
+  let text;
+  try {
+    text = typeof file.text === 'function'
+      ? await file.text()
+      : await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsText(file);
+        });
+  } catch {
+    setBackupStatus('No se pudo leer el archivo.', true);
+    return;
+  }
+
+  const parsed = parseBackup(text);
+  if (!parsed.ok) {
+    setBackupStatus(parsed.error, true);
+    return;
+  }
+
+  for (const key of parsed.keys) {
+    const value = parsed.data[key];
+    if (key === 'watchlist') {
+      state.watchlist = new Set(value);
+      store.set('watchlist', [...state.watchlist]);
+      updateWatchBadge();
+    } else if (key === 'newsRead') {
+      state.newsRead = new Set(value);
+      store.set('newsRead', [...state.newsRead]);
+    } else if (key === 'remote') {
+      state.profiles = value;
+      store.set('remote', value);
+    } else if (key === 'auto') {
+      state.auto = value;
+      store.set('auto', value);
+    } else if (key === 'overrides') {
+      state.overrides = value;
+      store.set('overrides', value);
+    } else if (key === 'notes') {
+      state.notes = value;
+      store.set('notes', value);
+    } else if (key === 'checks') {
+      state.checks = value;
+      store.set('checks', value);
+    }
+  }
+
+  recomputeScores();
+  renderWatchlist();
+  setBackupStatus(`Copia importada. ${backupSummary(describeBackup(parsed))}.`);
+}
+
 /* ---------- seguimiento ---------- */
 function renderWatchlist() {
   const list = [
     ...DATA.filter((c) => state.watchlist.has(c.t)),
     ...[...state.watchlist].filter((t) => !BY.has(t)).map((t) => remoteCompany(t))
   ];
+  const lastExport = store.get(BACKUP_AT, null);
+  const backupMeta = `Ahora mismo — ${backupSummary(describeBackup(backupData()))}. ${
+    lastExport ? `Última copia: ${new Date(lastExport).toLocaleString('es-ES')}.` : 'Todavía no has exportado ninguna copia.'
+  }`;
+
   view.innerHTML = `
     <div class="page-head">
       <p class="eyebrow">Tu lista</p>
@@ -1170,7 +1281,30 @@ function renderWatchlist() {
     }).join('')}</div>`
       : `<div class="empty"><strong>Tu lista está vacía</strong>
           Pulsa la estrella en el <a href="#/screener" style="color:var(--accent)">screener</a> para guardar una empresa y seguir su análisis aquí.</div>`}
+
+    <section class="card" style="margin-top:1.6rem">
+      <h3>Copia de seguridad</h3>
+      <p>Las notas, sobrescrituras, perfiles, checklists y el seguimiento viven solo en este navegador. Exporta un JSON para guardarlo o llevarlo a otro dispositivo: al importar se sustituyen únicamente las secciones que incluya el archivo.</p>
+      <p class="meta" style="margin-top:.6rem">${esc(backupMeta)}</p>
+      <div class="toolbar-row" style="margin-top:.8rem">
+        <button class="btn btn-primary" type="button" data-action="export-backup">Exportar JSON</button>
+        <button class="btn" type="button" data-action="import-backup">Importar JSON</button>
+        <input id="backupFile" type="file" accept="application/json,.json" hidden />
+      </div>
+      <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
+    </section>
   `;
+
+  const importButton = view.querySelector('[data-action="import-backup"]');
+  const fileInput = document.getElementById('backupFile');
+  if (importButton && fileInput) {
+    importButton.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (file) importBackup(file);
+      fileInput.value = '';
+    });
+  }
 }
 
 /* ---------- marco ---------- */
@@ -1449,6 +1583,7 @@ document.addEventListener('click', (e) => {
       return;
     }
     if (a === 'check-server') { checkServer(); return; }
+    if (a === 'export-backup') { exportBackup(); return; }
     if (a === 'live') { loadMarket(actionEl.dataset.t); return; }
     if (a === 'analyse') { runAnalysis(actionEl.dataset.t); return; }
     if (a === 'goto-search') {
