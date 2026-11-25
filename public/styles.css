@@ -609,6 +609,18 @@ textarea.note::placeholder { color: var(--dim); }
   .scale-row p { grid-column: 1 / -1; }
   .btn span.lbl { display: none; }
 }
+/* ---------- semáforo de fuentes ---------- */
+.src-health { margin-top: .7rem; }
+.src-title { margin: 0 0 .3rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); }
+.src-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .2rem; }
+.src-list li { display: flex; align-items: center; gap: .45rem; font-size: .78rem; }
+.src-list li span:last-child { color: var(--muted); font-size: .72rem; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--dim); }
+.dot.ok { background: var(--great); box-shadow: 0 0 0 3px rgba(94, 234, 212, .12); }
+.dot.degraded { background: var(--warn); }
+.dot.down { background: var(--bad); }
+.src-note { margin: .35rem 0 0; font-size: .68rem; color: var(--dim); }
+
 @media (max-width: 480px) {
   .view { padding-left: .85rem; padding-right: .85rem; }
   .page-head h1, h1 { font-size: 1.45rem; }

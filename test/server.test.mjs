@@ -409,6 +409,36 @@ test('la copia en el servidor se guarda, se recupera y sobrevive al reinicio', a
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
 
+test('/api/status cuenta qué fuentes responden y cuáles fallan', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer({ marketSource: 'free' });
+  const tv = fakeTradingViewFetch();
+  globalThis.fetch = tv.fetchImpl;
+
+  const vacio = await request(server, '/api/status', { ip: '10.12.0.1' });
+  check('sin consultas aún no hay fuentes', vacio.status === 200 && vacio.body.sources.length === 0, JSON.stringify(vacio.body.sources));
+  check('declara el proveedor y los respaldos', vacio.body.provider === 'tradingview' && vacio.body.fallbacks.join() === 'nasdaq,yahoo', JSON.stringify(vacio.body.fallbacks));
+
+  await request(server, '/api/quote?symbol=AAPL', { ip: '10.12.0.2' });
+  const sano = await request(server, '/api/status', { ip: '10.12.0.3' });
+  const tvOk = sano.body.sources.find((source) => source.name === 'TradingView');
+  check('la fuente usada aparece en verde', tvOk && tvOk.status === 'ok', JSON.stringify(tvOk));
+  check('con latencia y fecha', tvOk.latencyMs !== null && typeof tvOk.lastOkAt === 'string');
+  check('el estado global es correcto', sano.body.ok === true);
+
+  globalThis.fetch = async () => ({ ok: false, status: 429, json: async () => ({}), text: async () => '' });
+  await request(server, '/api/quote?symbol=MSFT&refresh=1', { ip: '10.12.0.4' });
+  const roto = await request(server, '/api/status', { ip: '10.12.0.5' });
+  const tvFallando = roto.body.sources.find((source) => source.name === 'TradingView');
+  const yahooCaido = roto.body.sources.find((source) => source.name === 'Yahoo Finance');
+  check('un fallo posterior deja la fuente degradada', tvFallando.status === 'degraded' && tvFallando.error.code === 'market_rate_limit', JSON.stringify(tvFallando));
+  check('la que nunca respondió aparece caída', yahooCaido.status === 'down', JSON.stringify(yahooCaido));
+  check('el estado global avisa', roto.body.ok === false);
+  check('el semáforo también llega en /api/health', (await request(server, '/api/health', { ip: '10.12.0.6' })).body.supports.includes('status'));
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
 test('/api/insiders consulta SEC, solo admite EE. UU. y cachea', async () => {
   const { check, failures } = makeChecks();
   const server = await loadServer();

@@ -1548,6 +1548,14 @@ function renderDataPanel(status = '') {
   `;
 }
 
+function sourceRow(source) {
+  const hora = source.lastOkAt ? new Date(source.lastOkAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : 'sin respuesta todavía';
+  const detalle = source.status === 'ok'
+    ? `${hora}${source.latencyMs !== null ? ` · ${source.latencyMs} ms` : ''}`
+    : `${source.error ? source.error.code + ' · ' : ''}última buena: ${hora}`;
+  return `<li><span class="dot ${source.status}" aria-hidden="true"></span><strong>${esc(source.name)}</strong> <span>${esc(detalle)}</span></li>`;
+}
+
 async function checkServer() {
   setStatus(`<div class="live-status">Consultando el servidor…</div>`);
   try {
@@ -1558,7 +1566,18 @@ async function checkServer() {
         ? 'modo demo (token público de EODHD)'
         : 'token propio configurado';
     const extra = health.mode === 'demo' && Array.isArray(health.demoTickers) ? ` · símbolos: ${health.demoTickers.join(', ')}` : '';
-    setStatus(`<div class="live-status ok">Servidor operativo · ${esc(health.provider)} · ${esc(mode)}${esc(extra)}</div>`);
+    let sources = '';
+    try {
+      const status = await api('/api/status');
+      if (status.sources.length) {
+        sources = `<div class="src-health"><p class="src-title">Semáforo de fuentes</p>
+          <ul class="src-list">${status.sources.map(sourceRow).join('')}</ul>
+          <p class="src-note">Se actualiza con cada consulta que hace el servidor.</p></div>`;
+      }
+    } catch {
+      sources = '';
+    }
+    setStatus(`<div class="live-status ok">Servidor operativo · ${esc(health.provider)} · ${esc(mode)}${esc(extra)}</div>${sources}`);
   } catch (err) {
     setStatus(`<div class="live-status err">${esc(err.message)} Comprueba que el servidor está arrancado y que abres la app desde su puerto.</div>`);
   }

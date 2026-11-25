@@ -25,6 +25,7 @@ import { MarketError, createMarketClient } from './free-market.mjs';
 import { createNasdaqClient } from './nasdaq.mjs';
 import { createNewsClient } from './free-news.mjs';
 import { createYahooClient } from './yahoo.mjs';
+import { createSourceHealth } from './health.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -77,6 +78,8 @@ const market = createMarketClient();
 const nasdaq = createNasdaqClient();
 const freeNews = createNewsClient();
 const yahoo = createYahooClient();
+const health = createSourceHealth();
+const STARTED_AT = Date.now();
 
 /**
  * Cotización gratuita en cadena: TradingView, Nasdaq (solo EE. UU.) y Yahoo.
@@ -84,8 +87,20 @@ const yahoo = createYahooClient();
  */
 async function freeQuote(symbol) {
   const failed = [];
+  const attempt = async (name, run) => {
+    const started = Date.now();
+    try {
+      const quote = await run();
+      health.record(name, { ok: true, ms: Date.now() - started });
+      return quote;
+    } catch (error) {
+      health.record(name, { ok: false, ms: Date.now() - started, error });
+      throw error;
+    }
+  };
+
   try {
-    return await market.quote(symbol);
+    return await attempt('TradingView', () => market.quote(symbol));
   } catch (error) {
     if (!(error instanceof MarketError)) throw error;
     failed.push(`TradingView (${error.code})`);
@@ -93,7 +108,7 @@ async function freeQuote(symbol) {
 
   if (/\.US$/i.test(symbol)) {
     try {
-      return await nasdaq.quote(symbol);
+      return await attempt('Nasdaq', () => nasdaq.quote(symbol));
     } catch (error) {
       if (!(error instanceof MarketError)) throw error;
       failed.push(`Nasdaq (${error.code})`);
@@ -101,7 +116,7 @@ async function freeQuote(symbol) {
   }
 
   try {
-    return await yahoo.quote(symbol);
+    return await attempt('Yahoo Finance', () => yahoo.quote(symbol));
   } catch (error) {
     if (!(error instanceof MarketError)) throw error;
     failed.push(`Yahoo (${error.code})`);
@@ -239,7 +254,7 @@ function isRateLimited(ip) {
 }
 
 /* ---------- proveedor ---------- */
-async function upstream(pathname, params = {}) {
+async function upstreamOnce(pathname, params = {}) {
   const url = new URL(`${API_BASE}${pathname}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
@@ -285,6 +300,19 @@ async function upstream(pathname, params = {}) {
     return JSON.parse(text);
   } catch {
     throw new HttpError(502, 'upstream_invalid', 'La fuente de datos devolvió una respuesta que no se pudo leer.');
+  }
+}
+
+/** Registra en el semáforo cada llamada a EODHD, salga bien o mal. */
+async function upstream(pathname, params = {}) {
+  const started = Date.now();
+  try {
+    const data = await upstreamOnce(pathname, params);
+    health.record('EODHD', { ok: true, ms: Date.now() - started });
+    return data;
+  } catch (error) {
+    health.record('EODHD', { ok: false, ms: Date.now() - started, error });
+    throw error;
   }
 }
 
@@ -494,7 +522,15 @@ async function getNews(symbol, limit, refresh) {
     } catch {
       name = null;
     }
-    const items = await freeMarket(() => freeNews.headlines(symbol, limit, { name }));
+    const started = Date.now();
+    let items;
+    try {
+      items = await freeMarket(() => freeNews.headlines(symbol, limit, { name }));
+      health.record('Noticias (RSS)', { ok: true, ms: Date.now() - started });
+    } catch (error) {
+      health.record('Noticias (RSS)', { ok: false, ms: Date.now() - started, error });
+      throw error;
+    }
     cacheSet(cacheKey, items, TTL.news);
     return items;
   }
@@ -653,7 +689,21 @@ async function handleApi(url, res, req) {
       provider: USE_FREE_MARKET ? 'tradingview' : 'eodhd',
       fallbacks: USE_FREE_MARKET ? ['nasdaq', 'yahoo'] : undefined,
       demoTickers: !USE_FREE_MARKET && MODE === 'demo' ? DEMO_TICKERS : undefined,
-      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup'],
+      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup', 'status'],
+      time: new Date().toISOString()
+    });
+    return;
+  }
+
+  if (path === '/api/status') {
+    const sources = health.snapshot();
+    sendJson(res, 200, {
+      ok: sources.every((source) => source.status !== 'down'),
+      provider: USE_FREE_MARKET ? 'tradingview' : 'eodhd',
+      mode: MODE,
+      fallbacks: USE_FREE_MARKET ? ['nasdaq', 'yahoo'] : [],
+      uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
+      sources,
       time: new Date().toISOString()
     });
     return;
@@ -739,11 +789,14 @@ async function handleApi(url, res, req) {
         return;
       }
     }
+    const started = Date.now();
     try {
       const data = await insiders.fetchInsiders(symbol, { months, limit });
+      health.record('SEC EDGAR', { ok: true, ms: Date.now() - started });
       cacheSet(cacheKey, data, TTL.insiders);
       sendJson(res, 200, data);
     } catch (error) {
+      health.record('SEC EDGAR', { ok: false, ms: Date.now() - started, error });
       if (error instanceof InsiderError) throw new HttpError(error.status, error.code, error.message);
       throw error;
     }
@@ -778,7 +831,7 @@ async function handleApi(url, res, req) {
   throw new HttpError(
     404,
     'unknown_endpoint',
-    'Endpoint no encontrado. Disponibles: /api/health, /api/search, /api/quote, /api/fundamentals, /api/analysis, /api/news.'
+    'Endpoint no encontrado. Disponibles: /api/health, /api/status, /api/search, /api/quote, /api/fundamentals, /api/analysis, /api/news.'
   );
 }
 
