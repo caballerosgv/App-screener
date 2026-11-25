@@ -15,7 +15,15 @@ export const COLUMNS_ORDER = [
   'price_52_week_low',
   'sector',
   'currency',
-  'exchange'
+  'exchange',
+  'return_on_equity',
+  'return_on_invested_capital',
+  'debt_to_equity',
+  'gross_margin',
+  'net_margin',
+  'free_cash_flow',
+  'total_revenue',
+  'beta_1_year'
 ];
 
 const row = (overrides) => ({
@@ -33,7 +41,8 @@ const row = (overrides) => ({
   price_52_week_low: overrides.price_52_week_low ?? null,
   sector: overrides.sector ?? null,
   currency: overrides.currency ?? null,
-  exchange: overrides.exchange ?? null
+  exchange: overrides.exchange ?? null,
+  ...overrides
 });
 
 export const ROWS = {
@@ -52,7 +61,15 @@ export const ROWS = {
     price_52_week_low: 164,
     sector: 'Technology Services',
     currency: 'USD',
-    exchange: 'NASDAQ'
+    exchange: 'NASDAQ',
+    return_on_equity: 150,
+    return_on_invested_capital: 55,
+    debt_to_equity: 3.9,
+    gross_margin: 46,
+    net_margin: 25,
+    free_cash_flow: 100_000_000_000,
+    total_revenue: 416_000_000_000,
+    beta_1_year: 1.1
   }),
   'AMEX:VTI': row({
     name: 'VTI',
@@ -71,7 +88,15 @@ export const ROWS = {
     price_earnings_ttm: 32.3,
     sector: 'Electronic Technology',
     currency: 'EUR',
-    exchange: 'EURONEXT'
+    exchange: 'EURONEXT',
+    return_on_equity: 60,
+    return_on_invested_capital: 45,
+    debt_to_equity: 0.3,
+    gross_margin: 52,
+    net_margin: 30,
+    free_cash_flow: 20_000_000_000,
+    total_revenue: 30_000_000_000,
+    beta_1_year: 1.2
   })
 };
 

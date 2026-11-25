@@ -9,6 +9,7 @@ import { buildFundamentals } from './fixtures/fundamentals.mjs';
 import { fakeSecFetch } from './fixtures/sec.mjs';
 import { fakeTradingViewFetch } from './fixtures/tradingview.mjs';
 import { fakeNewsFetch } from './fixtures/news.mjs';
+import { fakeSecXbrlFetch } from './fixtures/sec-xbrl.mjs';
 
 const SERVER_ENTRY = pathToFileURL(rootPath('server/index.js')).href;
 let imports = 0;
@@ -409,6 +410,30 @@ test('la copia en el servidor se guarda, se recupera y sobrevive al reinicio', a
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
 
+test('sin token, /api/analysis puntúa con TradingView y la SEC', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer({ marketSource: 'free' });
+  const tv = fakeTradingViewFetch();
+  const sec = fakeSecXbrlFetch();
+  globalThis.fetch = async (input, init) =>
+    String(input).includes('sec.gov') ? sec.fetchImpl(input, init) : tv.fetchImpl(input, init);
+
+  const res = await request(server, '/api/analysis?symbol=AAPL', { ip: '10.13.0.1' });
+  check('responde 200 sin token', res.status === 200, `${res.status}/${res.body.error && res.body.error.code}`);
+  check('combina ratios y cuentas de la SEC', res.body.source === 'TradingView + SEC XBRL', res.body.source);
+  check('cubre 7 de 8 factores', res.body.coverage === 7 && res.body.total === 8, `${res.body.coverage}/${res.body.total}`);
+  check('marca la nota como aproximada', res.body.approximate === true);
+  check('calcula el crecimiento con XBRL', res.body.factors.growth.available === true, JSON.stringify(res.body.factors.growth.reasons));
+  check('deja catalizadores en neutral', res.body.factors.catalysts.available === false && res.body.factors.catalysts.score === 5);
+  check('los ratios llegan a los inputs', res.body.inputs.roic === 55 && res.body.inputs.per === 30.5, `${res.body.inputs.roic}/${res.body.inputs.per}`);
+
+  const eu = await request(server, '/api/analysis?symbol=ASML.AS', { ip: '10.13.0.2' });
+  check('en Europa puntúa solo con ratios', eu.status === 200 && eu.body.source === 'TradingView' && eu.body.coverage === 5, `${eu.status}/${eu.body.coverage}`);
+  check('y lo explica', /neutrales/.test(eu.body.note), eu.body.note);
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
 test('/api/status cuenta qué fuentes responden y cuáles fallan', async () => {
   const { check, failures } = makeChecks();
   const server = await loadServer({ marketSource: 'free' });
@@ -490,7 +515,7 @@ test('sin token real la API usa la fuente gratuita para todos los mercados', asy
   check('el buscador funciona sin token', search.status === 200 && search.body.results.length === 3 && search.body.source === 'TradingView', `${search.status}/${search.body.results.length}`);
 
   const analysis = await request(server, '/api/analysis?symbol=AAPL', { ip: '10.9.0.7' });
-  check('el análisis avisa de que necesita EODHD', analysis.status === 501 && analysis.body.error.code === 'analysis_unavailable', `${analysis.status}/${analysis.body.error.code}`);
+  check('el análisis puntúa sin token, aunque solo con ratios', analysis.status === 200 && analysis.body.source === 'TradingView' && analysis.body.coverage === 5, `${analysis.status}/${analysis.body.coverage}`);
 
   globalThis.fetch = fakeNewsFetch().fetchImpl;
   const news = await request(server, '/api/news?symbol=AAPL', { ip: '10.9.0.8' });

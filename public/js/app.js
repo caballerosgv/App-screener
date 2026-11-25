@@ -453,7 +453,7 @@ function rubricBlock(auto) {
     auto.confidence === 'alta' ? 'datos completos' : auto.confidence === 'media' ? 'datos parciales' : 'sin datos';
   return `<div class="rubric">
     <div class="rubric-head">
-      <span>Cálculo automático · EODHD</span>
+      <span>Cálculo automático</span>
       <span class="rubric-conf ${auto.confidence}">${confidence}</span>
     </div>
     <table class="rubric-table">
@@ -539,7 +539,7 @@ function factorCard(c, f, i, openIndex = 0) {
         ? rubricBlock(eff.auto)
         : c.notes[i]
           ? `<h4>Comentario (demostración)</h4><p class="factor-desc" style="color:#c6d2e2">${esc(c.notes[i])}</p>`
-          : `<p class="note-hint">Todavía no hay análisis automático para este valor: la nota 5 es el punto de partida neutral. Pulsa «Calcular con EODHD» cuando el servidor tenga acceso a sus cuentas.</p>`}
+          : `<p class="note-hint">Todavía no hay análisis automático para este valor: la nota 5 es el punto de partida neutral. Pulsa «Calcular notas» para pedir el cálculo al servidor.</p>`}
 
       <h4>Qué mirar</h4>
       <ul class="bullets">${f.questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>
@@ -668,19 +668,22 @@ function renderCompany(ticker, openIndex = 0) {
   const m = analysis && analysis.inputs ? analysis.inputs : c.metrics;
   const usListed = /\.US$/i.test(providerSymbol(c.t)) && (!c.region || c.region === 'US');
 
+  const analysisSource = analysis ? esc(analysis.source || 'EODHD') : 'EODHD';
   const sourceText =
     total.source === 'auto'
-      ? 'Notas automáticas con datos de EODHD'
+      ? analysis && analysis.approximate
+        ? 'Notas automáticas · fuentes gratuitas'
+        : 'Notas automáticas con datos de EODHD'
       : total.source === 'mixta'
         ? `${total.manual} ${total.manual === 1 ? 'nota tuya' : 'notas tuyas'} · resto automático`
         : c.remote
-          ? 'Sin notas: pide el análisis con EODHD'
+          ? 'Sin notas: calcula el análisis'
           : 'Notas de demostración';
 
   const analysisStatus = analysis
-    ? `Calculado con EODHD · cuentas hasta ${esc(analysis.asOf)} · ${analysis.coverage}/${analysis.total} factores con datos`
+    ? `Calculado con ${analysisSource}${analysis.asOf ? ` · cuentas hasta ${esc(analysis.asOf)}` : ' · ratios del último ejercicio'} · ${analysis.coverage}/${analysis.total} factores con datos`
     : state.analysisLoading.has(c.t)
-      ? 'Cargando perfil, cuentas y cotización de EODHD…'
+      ? 'Cargando perfil, cuentas y cotización…'
       : 'Sin cálculo automático todavía';
 
   view.innerHTML = `
@@ -732,7 +735,7 @@ function renderCompany(ticker, openIndex = 0) {
       ${metricCard('PER', metric(m.per, (v) => mult(v)))}
       ${metricCard('FCF yield', metric(m.fcfYield, (v) => pct(v)))}
     </div>
-    ${analysis ? `<p class="note-hint" style="margin:-.5rem 0 1rem">Métricas de EODHD con las cuentas hasta ${esc(analysis.asOf)} (${analysis.years} ejercicios).</p>` : ''}
+    ${analysis ? `<p class="note-hint" style="margin:-.5rem 0 1rem">Métricas de ${esc(analysis.source || 'EODHD')}${analysis.asOf ? ` con las cuentas hasta ${esc(analysis.asOf)} (${analysis.years} ejercicios)` : ''}.${analysis.approximate ? ' Nota aproximada: revisa los supuestos antes de usarla.' : ''}</p>` : ''}
 
     <div class="detail-grid">
       <div class="detail-main">
@@ -745,7 +748,7 @@ function renderCompany(ticker, openIndex = 0) {
               <span class="analysis-status">${analysisStatus}</span>
               <span class="analysis-error" id="analysisError">${esc(analysisErrorFor(c))}</span>
             </div>
-            <button class="btn btn-sm" data-action="analyse" data-t="${esc(c.t)}">${analysis ? 'Recalcular' : 'Calcular con EODHD'}</button>
+            <button class="btn btn-sm" data-action="analyse" data-t="${esc(c.t)}">${analysis ? 'Recalcular' : 'Calcular notas'}</button>
           </div>
           ${FRAMEWORK.map((f, i) => factorCard(c, f, i, openIndex)).join('')}
         </section>
@@ -755,7 +758,7 @@ function renderCompany(ticker, openIndex = 0) {
         <section class="card radar-card">
           <div class="panel-title">Perfil de calidad</div>
           <div class="radar-wrap">${radar(values)}</div>
-          <p class="note-hint" style="margin-top:.5rem">${analysis ? 'Notas automáticas de EODHD con tus sobrescrituras aplicadas.' : c.remote ? 'Cada eje va de 0 a 10. Sin análisis todavía, todos parten de 5.' : 'Cada eje va de 0 a 10. Las notas son de demostración.'}</p>
+          <p class="note-hint" style="margin-top:.5rem">${analysis ? 'Notas automáticas con tus sobrescrituras aplicadas.' : c.remote ? 'Cada eje va de 0 a 10. Sin análisis todavía, todos parten de 5.' : 'Cada eje va de 0 a 10. Las notas son de demostración.'}</p>
         </section>
 
         <section class="card">

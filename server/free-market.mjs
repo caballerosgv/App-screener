@@ -37,7 +37,15 @@ const COLUMNS = [
   'price_52_week_low',
   'sector',
   'currency',
-  'exchange'
+  'exchange',
+  'return_on_equity',
+  'return_on_invested_capital',
+  'debt_to_equity',
+  'gross_margin',
+  'net_margin',
+  'free_cash_flow',
+  'total_revenue',
+  'beta_1_year'
 ];
 
 /** Sufijo de EODHD → bolsa de TradingView. */
@@ -247,11 +255,17 @@ export function createMarketClient({
       exchange: cleanText(row.exchange) || null,
       marketCap: toNum(row.market_cap_basic),
       peRatio: toNum(row.price_earnings_ttm),
-      roe: null,
+      roe: toNum(row.return_on_equity),
+      roic: toNum(row.return_on_invested_capital),
       roa: null,
-      profitMargin: null,
+      profitMargin: toNum(row.net_margin),
+      netMargin: toNum(row.net_margin),
+      grossMargin: toNum(row.gross_margin),
       operatingMargin: null,
-      revenue: null,
+      debtToEquity: toNum(row.debt_to_equity),
+      freeCashFlow: toNum(row.free_cash_flow),
+      beta: toNum(row.beta_1_year),
+      revenue: toNum(row.total_revenue),
       ebitda: null,
       dividendYield: null,
       week52High: toNum(row.price_52_week_high),

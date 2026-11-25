@@ -26,6 +26,8 @@ import { createNasdaqClient } from './nasdaq.mjs';
 import { createNewsClient } from './free-news.mjs';
 import { createYahooClient } from './yahoo.mjs';
 import { createSourceHealth } from './health.mjs';
+import { createSecXbrlClient } from './sec-xbrl.mjs';
+import { buildFreeAnalysis } from './free-analysis.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -78,6 +80,7 @@ const market = createMarketClient();
 const nasdaq = createNasdaqClient();
 const freeNews = createNewsClient();
 const yahoo = createYahooClient();
+const secXbrl = createSecXbrlClient();
 const health = createSourceHealth();
 const STARTED_AT = Date.now();
 
@@ -429,17 +432,28 @@ async function getSearch(query, limit, refresh) {
 }
 
 async function getAnalysis(symbol, refresh) {
-  if (USE_FREE_MARKET) {
-    throw new HttpError(
-      501,
-      'analysis_unavailable',
-      'El análisis con cuentas reales necesita un token de EODHD. Con la fuente gratuita hay cotización, fundamentales básicos, buscador y Form 4 de la SEC.'
-    );
-  }
   const cacheKey = `analysis:${symbol}`;
   if (!refresh) {
     const cached = cacheGet(cacheKey);
     if (cached) return cached;
+  }
+
+  if (USE_FREE_MARKET) {
+    const fundamentals = await getFundamentals(symbol, refresh);
+    let xbrl = null;
+    const started = Date.now();
+    try {
+      xbrl = await secXbrl.series(symbol);
+      health.record('SEC XBRL', { ok: true, ms: Date.now() - started });
+    } catch (error) {
+      health.record('SEC XBRL', { ok: false, ms: Date.now() - started, error });
+    }
+    const analysis = buildFreeAnalysis({ symbol, fundamentals, xbrl });
+    if (!analysis) {
+      throw new HttpError(404, 'no_financials', 'La fuente gratuita no tiene suficientes datos para puntuar ese símbolo.');
+    }
+    cacheSet(cacheKey, analysis, TTL.fundamentals);
+    return analysis;
   }
   const raw = await upstream(`/v1.1/fundamentals/${encodeURIComponent(symbol)}`, {
     filter:

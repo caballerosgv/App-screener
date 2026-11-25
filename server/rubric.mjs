@@ -39,10 +39,10 @@ function stdev(values) {
   return Math.sqrt(list.reduce((a, b) => a + (b - mean) ** 2, 0) / list.length);
 }
 
-const asPercent = (v) => (v === null || v === undefined ? null : Math.round(v * 1000) / 10);
+export const asPercent = (v) => (v === null || v === undefined ? null : Math.round(v * 1000) / 10);
 
 /** Bandas ascendentes (el valor debe ser <= umbral). */
-function pick(value, table) {
+export function pick(value, table) {
   for (const [max, points, band] of table) {
     if (value <= max) return { points, band };
   }
@@ -51,7 +51,7 @@ function pick(value, table) {
 }
 
 /** Bandas ascendentes (el valor debe ser >= umbral). */
-function pickHigh(value, table) {
+export function pickHigh(value, table) {
   let chosen = table[0];
   for (const entry of table) {
     if (value >= entry[0]) chosen = entry;
@@ -87,7 +87,7 @@ function nearest(rows, date) {
 
 const DEFENSIVE = ['consumer defensive', 'consumer staples', 'healthcare', 'utilities'];
 
-function sectorRiskScore(sector) {
+export function sectorRiskScore(sector) {
   const value = String(sector || '').toLowerCase();
   if (!value) return { points: 6, band: 'sector sin clasificar' };
   if (DEFENSIVE.includes(value)) return { points: 8.5, band: 'sector defensivo' };
@@ -97,7 +97,7 @@ function sectorRiskScore(sector) {
   return { points: 6.5, band: 'sector neutro' };
 }
 
-function factorResult({ key, reasons, method, note = null }) {
+export function factorResult({ key, reasons, method, note = null }) {
   const usable = reasons.filter((r) => r.points !== null);
   if (!usable.length) {
     return { key, score: 5, available: false, confidence: 'nula', reasons, method, note };
