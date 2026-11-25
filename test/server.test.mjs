@@ -8,6 +8,7 @@ import { rootPath, makeChecks } from './helpers.mjs';
 import { buildFundamentals } from './fixtures/fundamentals.mjs';
 import { fakeSecFetch } from './fixtures/sec.mjs';
 import { fakeTradingViewFetch } from './fixtures/tradingview.mjs';
+import { fakeNewsFetch } from './fixtures/news.mjs';
 
 const SERVER_ENTRY = pathToFileURL(rootPath('server/index.js')).href;
 let imports = 0;
@@ -432,8 +433,10 @@ test('sin token real la API usa la fuente gratuita para todos los mercados', asy
   const analysis = await request(server, '/api/analysis?symbol=AAPL', { ip: '10.9.0.7' });
   check('el análisis avisa de que necesita EODHD', analysis.status === 501 && analysis.body.error.code === 'analysis_unavailable', `${analysis.status}/${analysis.body.error.code}`);
 
+  globalThis.fetch = fakeNewsFetch().fetchImpl;
   const news = await request(server, '/api/news?symbol=AAPL', { ip: '10.9.0.8' });
-  check('las noticias quedan vacías, sin error', news.status === 200 && Array.isArray(news.body.items) && news.body.items.length === 0, `${news.status}`);
+  check('los titulares llegan sin token', news.status === 200 && news.body.items.length === 1, `${news.status}/${news.body.items.length}`);
+  check('y vienen del RSS gratuito, ya filtrados por relevancia', news.body.items[0].source === 'Yahoo Finance' && news.body.items[0].title.includes('Apple') && !!news.body.items[0].url, `${news.body.items[0].source}/${news.body.items[0].title}`);
 
   check('el escáner se consulta una vez por símbolo', tv.scans().length === 3, String(tv.scans().length));
 

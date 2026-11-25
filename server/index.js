@@ -22,6 +22,7 @@ import {
 import { SEC_USER_AGENT_DEFAULT, InsiderError, createInsiderClient } from './insiders.mjs';
 import { MarketError, createMarketClient } from './free-market.mjs';
 import { createNasdaqClient } from './nasdaq.mjs';
+import { createNewsClient } from './free-news.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -72,6 +73,7 @@ const MARKET_SOURCE = String(process.env.MARKET_SOURCE || 'auto').toLowerCase();
 const USE_FREE_MARKET = MARKET_SOURCE === 'free' || (MARKET_SOURCE !== 'eodhd' && MODE === 'demo');
 const market = createMarketClient();
 const nasdaq = createNasdaqClient();
+const freeNews = createNewsClient();
 
 /** Cotización gratuita: TradingView y, si falla en un valor de EE. UU., Nasdaq. */
 async function freeQuote(symbol) {
@@ -450,8 +452,16 @@ async function getNews(symbol, limit, refresh) {
     if (cached) return cached;
   }
   if (USE_FREE_MARKET) {
-    cacheSet(cacheKey, [], TTL.news);
-    return [];
+    // El nombre de la empresa (cacheado) sirve para quedarse con los titulares relevantes.
+    let name = null;
+    try {
+      name = (await getFundamentals(symbol, false)).name;
+    } catch {
+      name = null;
+    }
+    const items = await freeMarket(() => freeNews.headlines(symbol, limit, { name }));
+    cacheSet(cacheKey, items, TTL.news);
+    return items;
   }
   const raw = await upstream('/news', { s: symbol, limit, offset: 0 });
   const rows = Array.isArray(raw) ? raw : [];

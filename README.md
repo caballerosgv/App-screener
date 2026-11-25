@@ -43,6 +43,10 @@ Vistas de la app real, tomadas del build local. Los datos de las 24 empresas son
 
 ![Tarjeta de datos de mercado con ASML en euros desde la fuente gratuita](artifacts/datos-gratis-asml.png)
 
+**Titulares sin token** — noticias del valor desde el RSS gratuito, filtradas por relevancia.
+
+![Tarjeta de datos de mercado con titulares de Microsoft](artifacts/datos-gratis-msft.png)
+
 **Directivos** — compras y ventas de los Form 4 de la SEC, con el resumen del periodo y el plan 10b5-1.
 
 ![Tarjeta de directivos con las ventas reales de Microsoft](artifacts/directivos-msft.png)
@@ -68,7 +72,7 @@ Al elegir un resultado se abre `#/empresa/ASML.AS`. Si el ticker no está entre 
 
 Como esas empresas no tienen análisis editorial, la ficha muestra **Perfil de la empresa** en lugar de la tesis, los riesgos y los catalizadores de las 24 de demostración.
 
-> **Sin token**: el buscador, la cotización y los fundamentales básicos salen de la fuente gratuita, que cubre EE. UU. y las principales bolsas europeas. `/api/analysis` (notas con cuentas reales) y los titulares sí necesitan `EODHD_API_TOKEN`.
+> **Sin token**: el buscador, la cotización, los fundamentales básicos y los titulares salen de fuentes gratuitas, que cubren EE. UU. y las principales bolsas europeas. Solo `/api/analysis` (notas con las cuentas reales) necesita `EODHD_API_TOKEN`.
 
 ## Notas automáticas: la rúbrica
 
@@ -117,7 +121,7 @@ La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expo
 | `GET /api/search?q=asml&limit=15` | valores de EE. UU. y Europa que coinciden con nombre o ticker | 24 h |
 | `GET /api/quote?symbol=AAPL` | cotización normalizada | 60 s |
 | `GET /api/fundamentals?symbol=ASML.AS` | perfil, sector, capitalización, PER, ROE… | 24 h |
-| `GET /api/news?symbol=MSFT&limit=10` | titulares con enlace y sentimiento | 10 min |
+| `GET /api/news?symbol=MSFT&limit=10` | titulares con enlace y sentimiento (RSS de Yahoo y Google sin token; EODHD con token) | 10 min |
 | `GET /api/analysis?symbol=AAPL.US` | nota y rúbrica de los 8 factores con las cuentas reales | 24 h |
 | `GET /api/insiders?symbol=AAPL.US&months=12&limit=12` | compras y ventas de directivos según los Form 4 de la SEC (sin token) | 1 h |
 | `POST /api/backup` | guarda una copia del trabajo y devuelve un código corto (o actualiza la del código indicado) | — |
@@ -168,13 +172,14 @@ npm test
 | `test/overrides.test.mjs` | Rúbrica automática, badges de origen, sobrescritura de notas, recálculo del total y persistencia. |
 | `test/search.test.mjs` | Buscador de símbolos (panel, teclado, vista de resultados, error de token demo) y ficha de valores fuera del universo. |
 | `test/server.test.mjs` | Servidor y proxy: validación y normalización de símbolos, códigos de error normalizados, caché, límite por IP y `/api/health`, con el proveedor simulado y sin red. |
+| `test/free-news.test.mjs` | Titulares gratis: lectura del RSS (fechas, CDATA, HTML fuera del resumen), Yahoo primero, Google de respaldo y fallo explicado cuando ninguna responde. |
 | `test/nasdaq.test.mjs` | Respaldo de Nasdaq: parseo de importes, cierre de la sesión frente a after-hours, ETF, símbolo inexistente y errores 429/500. |
 | `test/free-market.test.mjs` | Fuente gratuita: resolución de tickers (EE. UU., Euronext, Xetra, SIX, OMX), cotización, fundamentales, buscador con sufijos de la app y errores del proveedor. |
 | `test/insiders.test.mjs` | Insiders: parser XML, Form 4 (solo P/S, derivados ignorados, plan 10b5-1), resumen, enmiendas 4/A, límites, caché del directorio y errores de la SEC, sin red. |
 | `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial, guardado y recuperación en el servidor con código, y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 448 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 474 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 

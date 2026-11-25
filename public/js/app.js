@@ -783,7 +783,7 @@ function renderCompany(ticker, openIndex = 0) {
 
         <section class="card" id="liveSlot">
           <div class="panel-title">Datos de mercado <span id="liveSource">fuente</span></div>
-          <p style="font-size:.82rem;color:var(--muted)">Cotización y perfil desde el proxy del servidor; con token de EODHD, también titulares. La clave del proveedor nunca llega al navegador.</p>
+          <p style="font-size:.82rem;color:var(--muted)">Cotización, perfil y titulares desde el proxy del servidor. La clave del proveedor nunca llega al navegador.</p>
           <button class="btn btn-sm" style="margin-top:.6rem" data-action="live" data-t="${esc(c.t)}">Cargar datos reales</button>
           <div id="liveOut" style="margin-top:.7rem"></div>
           <p class="note-hint" id="liveHint">Precio, capitalización y PER de cualquier símbolo de EE. UU. o Europa, sin token.</p>
