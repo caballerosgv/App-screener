@@ -180,6 +180,29 @@ export function secTicker(rawSymbol) {
   return symbol;
 }
 
+/** XML del índice que puede ser el Form 4: ni el resumen de la presentación ni las vistas XSL. */
+function isOwnershipDocName(name) {
+  const lower = String(name || '').toLowerCase();
+  if (!lower.endsWith('.xml')) return false;
+  if (lower.includes('xsl') || lower.includes('filingsummary')) return false;
+  return true;
+}
+
+/** Nombre del XML de la operación a partir del documento principal ("xslF345X05/form4.xml" → "form4.xml"). */
+function ownershipDocName(primary) {
+  if (!primary) return null;
+  const name = String(primary).split('/').pop();
+  if (!name || !name.toLowerCase().endsWith('.xml')) return null;
+  return isOwnershipDocName(name) ? name : null;
+}
+
+/** Prefiere form4.xml, luego el documento de titularidad y al final el resto. */
+function docScore(name) {
+  if (/form4/i.test(name)) return 0;
+  if (/ownership/i.test(name)) return 1;
+  return 2;
+}
+
 /** Transacciones P/S de un Form 4. Ignora derivados, premios y códigos distintos de P/S. */
 export function parseForm4(xml, { filingUrl = null, filingDate = null } = {}) {
   const document = findNode(parseXml(xml), 'ownershipDocument');
@@ -319,29 +342,52 @@ export function createInsiderClient({
 
     for (const candidate of examined) {
       try {
-        const index = await secJson(`${archiveBase(issuer.cik, candidate.accession)}/index.json`);
-        const items = (index && index.directory && index.directory.item) || [];
-        const names = items
-          .map((item) => String((item && item.name) || ''))
-          .filter((name) => name.toLowerCase().endsWith('.xml') && !name.toLowerCase().includes('xsl'))
-          .sort((a, b) => (a.toLowerCase().includes('ownership') ? 0 : 1) - (b.toLowerCase().includes('ownership') ? 0 : 1) || a.localeCompare(b));
+        const base = archiveBase(issuer.cik, candidate.accession);
+        let xml = null;
+        let docName = null;
 
-        for (const name of names.slice(0, 4)) {
-          const xml = await secText(`${archiveBase(issuer.cik, candidate.accession)}/${name}`);
-          if (!xml || !xml.slice(0, 2000).includes('ownershipDocument')) continue;
-          const filingUrl = candidate.primary
-            ? `${archiveBase(issuer.cik, candidate.accession)}/${candidate.primary}`
-            : `${archiveBase(issuer.cik, candidate.accession)}/${name}`;
+        // Camino directo: el documento principal del Form 4 ya es el XML de la
+        // operación, así que basta una petición por formulario (sin index.json y
+        // sin el 404 de FilingSummary.xml).
+        const direct = ownershipDocName(candidate.primary);
+        if (direct) {
+          const text = await secText(`${base}/${direct}`);
+          if (text && text.slice(0, 4000).includes('ownershipDocument')) {
+            xml = text;
+            docName = direct;
+          }
+        }
+
+        // Respaldo: si el documento principal no es el XML, se mira el índice y
+        // solo se descargan los candidatos, filtrando resumen y vistas XSL.
+        if (!xml) {
+          const index = await secJson(`${base}/index.json`);
+          const items = (index && index.directory && index.directory.item) || [];
+          const names = items
+            .map((item) => String((item && item.name) || ''))
+            .filter(isOwnershipDocName)
+            .sort((a, b) => docScore(a) - docScore(b) || a.localeCompare(b));
+
+          for (const name of names.slice(0, 2)) {
+            const text = await secText(`${base}/${name}`);
+            if (!text || !text.slice(0, 4000).includes('ownershipDocument')) continue;
+            xml = text;
+            docName = name;
+            break;
+          }
+        }
+
+        if (xml) {
+          const filingUrl = `${base}/${candidate.primary || docName}`;
           // La ocurrencia se cuenta dentro de cada formulario: un 4/A puede repetir
           // la misma operación del 4 original y, aun así, conservar líneas legítimas.
           const perFiling = new Map();
           for (const row of parseForm4(xml, { filingUrl, filingDate: candidate.filingDate })) {
-            const base = [row.transaction_date, row.owner, row.code, row.shares, row.price_usd, row.security].join('|');
-            const occurrence = perFiling.get(base) || 0;
-            perFiling.set(base, occurrence + 1);
+            const key = [row.transaction_date, row.owner, row.code, row.shares, row.price_usd, row.security].join('|');
+            const occurrence = perFiling.get(key) || 0;
+            perFiling.set(key, occurrence + 1);
             transactions.push({ ...row, occurrence });
           }
-          break;
         }
       } catch (error) {
         if (error instanceof InsiderError && error.code === 'sec_user_agent') throw error;

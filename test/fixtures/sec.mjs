@@ -56,7 +56,27 @@ export const SUBMISSIONS = {
         '0000320193-26-000006'
       ],
       filingDate: ['2026-11-18', '2026-10-30', '2026-11-20', '2020-01-10', '2026-11-01', '2026-11-21', '2026-11-22'],
-      primaryDocument: ['doc1.htm', 'aapl-10k.htm', 'doc2.htm', 'old.htm', 'sc13g.htm', 'doc5.htm', 'doc6.htm']
+      primaryDocument: [
+        'xslF345X05/form4.xml',
+        'aapl-10k.htm',
+        'xslF345X05/form4.xml',
+        'xslF345X05/form4.xml',
+        'sc13g.htm',
+        'xslF345X05/form4.xml',
+        'xslF345X05/form4.xml'
+      ]
+    }
+  }
+};
+
+/** Un Form 4 cuyo documento principal no es el XML: obliga a mirar el índice. */
+export const FALLBACK_SUBMISSIONS = {
+  filings: {
+    recent: {
+      form: ['4'],
+      accessionNumber: ['0000320193-26-000001'],
+      filingDate: ['2026-11-18'],
+      primaryDocument: ['primary_doc.htm']
     }
   }
 };

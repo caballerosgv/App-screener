@@ -123,7 +123,7 @@ La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expo
 
 - Solo cubre empresas de **EE. UU.**; para un valor europeo responde `unsupported_market` (400).
 - Descarta los códigos que no son P/S, ignora la tabla de derivados y no duplica una operación repetida en una enmienda 4/A (se queda con la presentación más reciente).
-- La respuesta se cachea 1 h; con `limit=12` son como mucho ~25 peticiones a la SEC por consulta (una cada 120 ms), así que en la app se pide al pulsar *Cargar movimientos* en la ficha, no al abrirla.
+- Cada formulario cuesta una sola petición: se descarga directamente el XML de la operación a partir del documento principal de la presentación, y solo si no lo es se mira el índice (sin pedir `FilingSummary.xml`). La respuesta se cachea 1 h; con `limit=12` son ~14 peticiones a la SEC, con 120 ms entre formularios, así que en la app se pide al pulsar *Cargar movimientos* en la ficha, no al abrirla.
 - Son operaciones de directivos, **no** posiciones institucionales 13F.
 
 ### Puesta en marcha
@@ -166,7 +166,7 @@ npm test
 | `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial, guardado y recuperación en el servidor con código, y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 384 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 392 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 

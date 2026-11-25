@@ -4,7 +4,7 @@ import { makeChecks } from './helpers.mjs';
 import {
   createInsiderClient, parseForm4, parseXml, findNode, decodeEntities, secTicker
 } from '../server/insiders.mjs';
-import { fakeSecFetch, form4, txRow } from './fixtures/sec.mjs';
+import { FALLBACK_SUBMISSIONS, fakeSecFetch, form4, txRow } from './fixtures/sec.mjs';
 
 const AHORA = () => new Date('2026-11-25T00:00:00Z');
 
@@ -85,6 +85,11 @@ test('cliente SEC: resumen, enmiendas y caché del directorio', async () => {
   check('sin truncado con cuatro formularios', result.truncated === false);
   check('advierte de que no son posiciones 13F', /13F/.test(result.note), result.note);
 
+  check('no pide FilingSummary.xml', !sec.calls.some((url) => /FilingSummary/i.test(url)), sec.calls.filter((url) => /FilingSummary/i.test(url)).join(' '));
+  check('una sola descarga de XML por formulario', sec.calls.filter((url) => /\/form4\.xml$/.test(url)).length === 4, String(sec.calls.filter((url) => /\/form4\.xml$/.test(url)).length));
+  check('sin index.json cuando el documento principal ya es el XML', !sec.calls.some((url) => /index\.json$/.test(url)));
+  check('seis llamadas a la SEC en total', sec.calls.length === 6, `${sec.calls.length}: ${sec.calls.join(' ')}`);
+
   const tickersLlamadas = () => sec.calls.filter((url) => url.includes('company_tickers.json')).length;
   check('pide el directorio de la SEC una vez', tickersLlamadas() === 1, String(tickersLlamadas()));
   await client.fetchInsiders('AAPL.US');
@@ -92,6 +97,20 @@ test('cliente SEC: resumen, enmiendas y caché del directorio', async () => {
 
   const recortado = await client.fetchInsiders('AAPL.US', { limit: 2 });
   check('limita los formularios examinados', recortado.filings_examined === 2 && recortado.truncated === true, `${recortado.filings_examined}/${recortado.truncated}`);
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('cliente SEC: respaldo del índice sin descargar el resumen', async () => {
+  const { check, failures } = makeChecks();
+  const sec = fakeSecFetch({ submissions: FALLBACK_SUBMISSIONS });
+  const client = createInsiderClient({ fetchImpl: sec.fetchImpl, pauseMs: 0, now: AHORA });
+
+  const result = await client.fetchInsiders('AAPL.US');
+  check('lee el Form 4 desde el índice', result.transactions.length === 2, String(result.transactions.length));
+  check('el índice se pide una vez', sec.calls.filter((url) => /index\.json$/.test(url)).length === 1);
+  check('no descarga FilingSummary.xml', !sec.calls.some((url) => /FilingSummary/i.test(url)), sec.calls.join(' '));
+  check('cuatro llamadas en total', sec.calls.length === 4, `${sec.calls.length}: ${sec.calls.join(' ')}`);
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
