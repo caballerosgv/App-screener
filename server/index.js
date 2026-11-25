@@ -11,13 +11,14 @@
  */
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildAnalysis } from './rubric.mjs';
 import {
-  MAX_BACKUP_BYTES, createBackupCode, normalizeBackupCode, validateBackupPayload
+  BACKUP_TTL_DAYS, MAX_BACKUP_BYTES, createBackupCode, expiresAt as backupExpiresAt, isExpired,
+  normalizeBackupCode, validateBackupPayload
 } from './backup.mjs';
 import { SEC_USER_AGENT_DEFAULT, InsiderError, createInsiderClient } from './insiders.mjs';
 import { MarketError, createMarketClient } from './free-market.mjs';
@@ -208,6 +209,20 @@ function cacheGet(key) {
 function cacheSet(key, value, ttl) {
   if (cache.size > 300) cache.clear();
   cache.set(key, { value, expires: Date.now() + ttl });
+}
+
+/** Límite propio para crear, actualizar y borrar copias: 20 por hora e IP. */
+const backupHits = new Map();
+function isBackupLimited(ip) {
+  const now = Date.now();
+  const record = backupHits.get(ip);
+  if (!record || record.reset < now) {
+    backupHits.set(ip, { count: 1, reset: now + 3_600_000 });
+    if (backupHits.size > 5000) backupHits.clear();
+    return false;
+  }
+  record.count += 1;
+  return record.count > 20;
 }
 
 const hits = new Map();
@@ -510,6 +525,19 @@ async function readBackupFile(code) {
   }
 }
 
+const BACKUP_EXPIRED = `Esa copia ha caducado. Las copias del servidor se borran solas a los ${BACKUP_TTL_DAYS} días; guarda una nueva.`;
+
+/** Lee la copia y, si ha caducado, la borra del disco y lo indica. */
+async function loadBackup(code) {
+  const record = await readBackupFile(code);
+  if (!record) return { record: null, expired: false };
+  if (isExpired(record)) {
+    await rm(backupPath(code), { force: true });
+    return { record: null, expired: true };
+  }
+  return { record, expired: false };
+}
+
 async function writeBackupFile(code, record) {
   await mkdir(BACKUP_DIR, { recursive: true });
   const target = backupPath(code);
@@ -530,7 +558,8 @@ async function createBackup(payload) {
       keys: payload.keys,
       data: payload.data,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      expiresAt: backupExpiresAt(new Date(now))
     };
     await writeBackupFile(code, record);
     return record;
@@ -643,7 +672,8 @@ async function handleApi(url, res, req) {
       if (!valid.ok) throw new HttpError(400, 'invalid_backup', valid.error);
 
       if (code) {
-        const existing = await readBackupFile(code);
+        const { record: existing, expired } = await loadBackup(code);
+        if (expired) throw new HttpError(410, 'backup_expired', BACKUP_EXPIRED);
         if (!existing) throw new HttpError(404, 'not_found', 'No hay ninguna copia con ese código.');
         const record = {
           ...existing,
@@ -651,7 +681,9 @@ async function handleApi(url, res, req) {
           exportedAt: valid.exportedAt,
           keys: valid.keys,
           data: valid.data,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          // Volver a guardar renueva la caducidad.
+          expiresAt: backupExpiresAt()
         };
         await writeBackupFile(code, record);
         sendJson(res, 200, record);
@@ -662,10 +694,28 @@ async function handleApi(url, res, req) {
       return;
     }
 
+    if (req.method === 'DELETE') {
+      const code = normalizeBackupCode(codeParam);
+      if (!code) throw new HttpError(400, 'invalid_code', mensajeCodigo);
+      const { record, expired } = await loadBackup(code);
+      if (!record) {
+        throw expired
+          ? new HttpError(410, 'backup_expired', BACKUP_EXPIRED)
+          : new HttpError(404, 'not_found', 'No hay ninguna copia con ese código.');
+      }
+      await rm(backupPath(code), { force: true });
+      sendJson(res, 200, { deleted: true, code });
+      return;
+    }
+
     const code = normalizeBackupCode(codeParam);
     if (!code) throw new HttpError(400, 'invalid_code', mensajeCodigo);
-    const record = await readBackupFile(code);
-    if (!record) throw new HttpError(404, 'not_found', 'No hay ninguna copia con ese código.');
+    const { record, expired } = await loadBackup(code);
+    if (!record) {
+      throw expired
+        ? new HttpError(410, 'backup_expired', BACKUP_EXPIRED)
+        : new HttpError(404, 'not_found', 'No hay ninguna copia con ese código.');
+    }
     sendJson(res, 200, record);
     return;
   }
@@ -744,13 +794,16 @@ const server = createServer(async (req, res) => {
   }
 
   try {
-    const isBackupPost = req.method === 'POST' && url.pathname === '/api/backup';
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !isBackupPost) {
-      throw new HttpError(405, 'method_not_allowed', 'Solo se admiten peticiones GET (y POST en /api/backup).');
+    const isBackupWrite = (req.method === 'POST' || req.method === 'DELETE') && url.pathname === '/api/backup';
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !isBackupWrite) {
+      throw new HttpError(405, 'method_not_allowed', 'Solo se admiten peticiones GET (y POST/DELETE en /api/backup).');
     }
     if (url.pathname.startsWith('/api/')) {
       if (isRateLimited(ip)) {
         throw new HttpError(429, 'rate_limited', 'Demasiadas peticiones desde tu red. Espera un minuto.');
+      }
+      if (isBackupWrite && isBackupLimited(ip)) {
+        throw new HttpError(429, 'backup_rate_limited', 'Demasiadas operaciones con copias desde tu red. Espera una hora.');
       }
       await handleApi(url, res, req);
     } else {

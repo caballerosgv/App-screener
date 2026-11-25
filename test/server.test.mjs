@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -363,6 +363,35 @@ test('la copia en el servidor se guarda, se recupera y sobrevive al reinicio', a
   const reinicio = await loadServer({ dataDir });
   const trasReinicio = await request(reinicio, `/api/backup?code=${encodeURIComponent(code)}`, { ip: '10.7.0.5' });
   check('la copia sobrevive a un reinicio', trasReinicio.status === 200 && trasReinicio.body.data.notes.AAPL === 'Nota nueva');
+
+  const dias = (new Date(creada.body.expiresAt).getTime() - Date.now()) / 86_400_000;
+  check('la copia declara su caducidad a 30 días', dias > 29 && dias < 31, `${dias.toFixed(1)} días`);
+
+  // Una copia caducada se borra sola y se explica.
+  const vieja = await request(server, '/api/backup', { ip: '10.7.1.1', method: 'POST', body: copia });
+  const viejaFile = join(dataDir, 'backups', `${vieja.body.code.replace('-', '')}.json`);
+  const record = JSON.parse(readFileSync(viejaFile, 'utf8'));
+  writeFileSync(viejaFile, JSON.stringify({ ...record, expiresAt: '2020-01-01T00:00:00.000Z' }), 'utf8');
+  const caducada = await request(server, `/api/backup?code=${encodeURIComponent(vieja.body.code)}`, { ip: '10.7.1.2' });
+  check('una copia caducada → 410 backup_expired', caducada.status === 410 && caducada.body.error.code === 'backup_expired', `${caducada.status}/${caducada.body.error.code}`);
+  check('la caducada se borra del disco', !existsSync(viejaFile));
+  const borrada = await request(server, `/api/backup?code=${encodeURIComponent(vieja.body.code)}`, { ip: '10.7.1.3' });
+  check('tras caducar ya no existe', borrada.status === 404 && borrada.body.error.code === 'not_found');
+
+  const eliminada = await request(server, `/api/backup?code=${encodeURIComponent(code)}`, { method: 'DELETE', ip: '10.7.2.1' });
+  check('DELETE borra la copia', eliminada.status === 200 && eliminada.body.deleted === true, `${eliminada.status}`);
+  const trasBorrar = await request(server, `/api/backup?code=${encodeURIComponent(code)}`, { ip: '10.7.2.2' });
+  check('después de borrar → 404', trasBorrar.status === 404 && trasBorrar.body.error.code === 'not_found');
+  const borrarOtra = await request(server, '/api/backup?code=ZZZZ-ZZZZ', { method: 'DELETE', ip: '10.7.2.3' });
+  check('borrar un código inexistente → 404', borrarOtra.status === 404);
+  const borrarSinCodigo = await request(server, '/api/backup', { method: 'DELETE', ip: '10.7.2.4' });
+  check('borrar sin código → 400', borrarSinCodigo.status === 400 && borrarSinCodigo.body.error.code === 'invalid_code');
+
+  let ultima = null;
+  for (let i = 0; i < 21; i += 1) {
+    ultima = await request(server, '/api/backup', { method: 'POST', ip: '10.7.3.1', body: copia });
+  }
+  check('crear copias tiene su propio límite', ultima.status === 429 && ultima.body.error.code === 'backup_rate_limited', `${ultima.status}/${ultima.body.error.code}`);
 
   const desconocido = await request(server, '/api/backup?code=ZZZZ-ZZZZ', { ip: '10.7.0.6' });
   check('código desconocido → 404 not_found', desconocido.status === 404 && desconocido.body.error.code === 'not_found', `${desconocido.status}/${desconocido.body.error.code}`);

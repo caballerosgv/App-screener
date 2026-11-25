@@ -290,10 +290,10 @@ function screenerRows() {
 
   return `<div class="table-wrap"><table>
     <thead><tr>
-      <th>Empresa</th><th class="hide-sm">Mercado</th><th class="hide-md">Sector</th>
-      <th>Calidad</th><th class="hide-md">MOAT</th>
-      <th class="num hide-md">Crec.</th><th class="num hide-md">ROIC</th>
-      <th class="num">PER</th><th class="num hide-md">Deuda/EBITDA</th>
+      <th scope="col">Empresa</th><th scope="col" class="hide-sm">Mercado</th><th scope="col" class="hide-md">Sector</th>
+      <th scope="col">Calidad</th><th scope="col" class="hide-md">MOAT</th>
+      <th scope="col" class="num hide-md">Crec.</th><th scope="col" class="num hide-md">ROIC</th>
+      <th scope="col" class="num">PER</th><th scope="col" class="num hide-md">Deuda/EBITDA</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
@@ -457,7 +457,7 @@ function rubricBlock(auto) {
       <span class="rubric-conf ${auto.confidence}">${confidence}</span>
     </div>
     <table class="rubric-table">
-      <thead><tr><th>Indicador</th><th class="num">Valor</th><th>Banda</th><th class="num">Pts</th></tr></thead>
+      <thead><tr><th scope="col">Indicador</th><th scope="col" class="num">Valor</th><th scope="col">Banda</th><th scope="col" class="num">Pts</th></tr></thead>
       <tbody>${auto.reasons
         .map(
           (r) => `<tr>
@@ -1018,7 +1018,7 @@ function renderCompare(aT, bT) {
       <div class="panel-title">Los 8 factores <span>${esc(A.t)} · ${esc(B.t)}</span></div>
       <div style="overflow-x:auto">
         <table class="cmp-table">
-          <thead><tr><th>Factor</th><th class="num">${esc(A.t)}</th><th class="num">${esc(B.t)}</th><th>Ventaja</th></tr></thead>
+          <thead><tr><th scope="col">Factor</th><th scope="col" class="num">${esc(A.t)}</th><th scope="col" class="num">${esc(B.t)}</th><th scope="col">Ventaja</th></tr></thead>
           <tbody>${factorRows}</tbody>
         </table>
       </div>
@@ -1028,7 +1028,7 @@ function renderCompare(aT, bT) {
       <div class="panel-title">Métricas clave <span>mejor valor marcado en verde</span></div>
       <div style="overflow-x:auto">
         <table class="cmp-table">
-          <thead><tr><th>Métrica</th><th class="num">${esc(A.t)}</th><th class="num">${esc(B.t)}</th></tr></thead>
+          <thead><tr><th scope="col">Métrica</th><th scope="col" class="num">${esc(A.t)}</th><th scope="col" class="num">${esc(B.t)}</th></tr></thead>
           <tbody>${metricRows}</tbody>
         </table>
       </div>
@@ -1261,6 +1261,7 @@ function applyBackup(parsed) {
 }
 
 const BACKUP_CODE_KEY = 'backupCode';
+const BACKUP_EXPIRES_KEY = 'backupExpires';
 
 async function saveRemoteBackup() {
   const payload = buildBackup(backupData());
@@ -1268,8 +1269,10 @@ async function saveRemoteBackup() {
   try {
     const saved = await api(`/api/backup${code ? `?code=${encodeURIComponent(code)}` : ''}`, { method: 'POST', body: payload });
     store.set(BACKUP_CODE_KEY, saved.code);
+    store.set(BACKUP_EXPIRES_KEY, saved.expiresAt || null);
     renderWatchlist();
-    setBackupStatus(`Copia guardada en el servidor con el código ${saved.code}. ${backupSummary(describeBackup(payload))}.`);
+    const caduca = saved.expiresAt ? ` Caduca el ${new Date(saved.expiresAt).toLocaleDateString('es-ES')}.` : '';
+    setBackupStatus(`Copia guardada en el servidor con el código ${saved.code}.${caduca} ${backupSummary(describeBackup(payload))}.`);
   } catch (error) {
     setBackupStatus(error.message || 'No se pudo guardar la copia en el servidor.', true);
   }
@@ -1298,6 +1301,24 @@ async function loadRemoteBackup() {
   }
 }
 
+async function deleteRemoteBackup() {
+  const input = document.getElementById('backupCode');
+  const code = normalizeBackupCode((input && input.value) || store.get(BACKUP_CODE_KEY, null));
+  if (!code) {
+    setBackupStatus('Escribe el código de la copia que quieres borrar.', true);
+    return;
+  }
+  try {
+    await api(`/api/backup?code=${encodeURIComponent(code)}`, { method: 'DELETE' });
+    store.set(BACKUP_CODE_KEY, null);
+    store.set(BACKUP_EXPIRES_KEY, null);
+    renderWatchlist();
+    setBackupStatus(`Copia ${code} borrada del servidor. Ya no se puede recuperar.`);
+  } catch (error) {
+    setBackupStatus(error.message || 'No se pudo borrar la copia del servidor.', true);
+  }
+}
+
 /* ---------- seguimiento ---------- */
 function renderWatchlist() {
   const list = [
@@ -1309,9 +1330,12 @@ function renderWatchlist() {
   const backupMeta = `Ahora mismo — ${backupSummary(describeBackup(backupData()))}. ${
     lastExport ? `Última copia: ${new Date(lastExport).toLocaleString('es-ES')}.` : 'Todavía no has exportado ninguna copia.'
   }`;
+  const remoteExpires = store.get(BACKUP_EXPIRES_KEY, null);
   const remoteNote = remoteCode
-    ? `Última copia en el servidor: ${remoteCode}. Vuelve a guardar para actualizarla.`
-    : 'Todavía no has guardado ninguna copia en el servidor.';
+    ? `Última copia en el servidor: ${remoteCode}${
+        remoteExpires ? ` (caduca el ${new Date(remoteExpires).toLocaleDateString('es-ES')})` : ''
+      }. Vuelve a guardar para actualizarla.`
+    : 'Todavía no has guardado ninguna copia en el servidor. Las copias caducan a los 30 días y se borran solas.';
 
   view.innerHTML = `
     <div class="page-head">
@@ -1362,6 +1386,7 @@ function renderWatchlist() {
           <input id="backupCode" class="backup-code" type="text" inputmode="latin" autocomplete="off" spellcheck="false" placeholder="ABCD-EFGH" maxlength="9" value="${esc(remoteCode || '')}" />
         </label>
         <button class="btn" type="button" data-action="load-remote-backup">Recuperar</button>
+        <button class="btn btn-ghost" type="button" data-action="delete-remote-backup">Borrar del servidor</button>
       </div>
       <p class="meta" style="margin-top:.5rem">${esc(remoteNote)}</p>
       <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
@@ -1732,6 +1757,7 @@ document.addEventListener('click', (e) => {
     if (a === 'export-backup') { exportBackup(); return; }
     if (a === 'save-remote-backup') { saveRemoteBackup(); return; }
     if (a === 'load-remote-backup') { loadRemoteBackup(); return; }
+    if (a === 'delete-remote-backup') { deleteRemoteBackup(); return; }
     if (a === 'live') { loadMarket(actionEl.dataset.t); return; }
     if (a === 'insiders') { loadInsiders(actionEl.dataset.t); return; }
     if (a === 'analyse') { runAnalysis(actionEl.dataset.t); return; }

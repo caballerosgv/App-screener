@@ -609,6 +609,24 @@ textarea.note::placeholder { color: var(--dim); }
   .scale-row p { grid-column: 1 / -1; }
   .btn span.lbl { display: none; }
 }
+@media (max-width: 480px) {
+  .view { padding-left: .85rem; padding-right: .85rem; }
+  .page-head h1, h1 { font-size: 1.45rem; }
+  .toolbar, .toolbar-row { gap: .4rem; }
+  .toolbar .btn, .toolbar-row .btn { flex: 1 1 auto; }
+  .live-metrics { grid-template-columns: repeat(2, 1fr); }
+  .table-wrap { margin-inline: -.85rem; padding-inline: .85rem; }
+  .stats { grid-template-columns: 1fr 1fr; }
+  .stat strong { font-size: 1.35rem; }
+  .factor > summary { padding: .6rem .65rem; }
+  .co-avatar { width: 34px; height: 34px; }
+  .btn { padding: .5rem .7rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
 @media print {
   .topbar, .footer, .toolbar, .detail-aside .card:not(.radar-card) { display: none; }
   body { background: #fff; color: #000; }

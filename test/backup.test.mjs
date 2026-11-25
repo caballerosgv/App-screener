@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mountApp, makeChecks, offlineFetch } from './helpers.mjs';
 import { buildBackup, parseBackup, describeBackup, BACKUP_KEYS, BACKUP_VERSION, normalizeBackupCode } from '../public/js/lib.js';
-import { BACKUP_KEYS as SERVER_BACKUP_KEYS, normalizeBackupCode as normalizeServerCode } from '../server/backup.mjs';
+import {
+  BACKUP_KEYS as SERVER_BACKUP_KEYS, BACKUP_TTL_DAYS, expiresAt, isExpired,
+  normalizeBackupCode as normalizeServerCode
+} from '../server/backup.mjs';
 
 const SEED = {
   'moat.v1.watchlist': ['AAPL', 'MSFT'],
@@ -60,6 +63,43 @@ test('la copia incluye todas las secciones y se puede volver a leer', async () =
       normalizeBackupCode('ABCD-EFG0') === null,
     normalizeBackupCode('abcd efgh')
   );
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('las copias del servidor caducan y se pueden borrar', async () => {
+  const { check, failures } = makeChecks();
+  const from = new Date('2026-11-25T10:00:00Z');
+  const caduca = expiresAt(from);
+  check('caducan a los 30 días', new Date(caduca) - from === BACKUP_TTL_DAYS * 86_400_000, caduca);
+  check('una copia recién guardada no ha caducado', isExpired({ createdAt: from.toISOString(), expiresAt: caduca }, from) === false);
+  check('pasada la fecha, caduca', isExpired({ createdAt: from.toISOString(), expiresAt: caduca }, new Date('2026-12-26T00:00:00Z')) === true);
+  check('las copias antiguas sin fecha usan createdAt', isExpired({ createdAt: '2026-01-01T00:00:00Z' }, from) === true);
+  check('una copia sin fechas cuenta como caducada', isExpired({}, from) === true && isExpired(null, from) === true);
+
+  let deleted = null;
+  const serverRecord = { code: 'ABCD-EFGH', data: { notes: { AAPL: 'x' } }, expiresAt: caduca };
+  const fetchImpl = async (url, init = {}) => {
+    const target = String(url);
+    if (init.method === 'DELETE') {
+      deleted = decodeURIComponent(target.split('code=')[1]);
+      return { ok: true, status: 200, json: async () => ({ deleted: true, code: deleted }) };
+    }
+    if (init.method === 'POST') return { ok: true, status: 201, json: async () => serverRecord };
+    return { ok: false, status: 404, json: async () => ({ error: { code: 'not_found', message: 'No hay ninguna copia con ese código.' } }) };
+  };
+  const { w, view, document } = await mountApp({ hash: '#/seguimiento', storage: SEED, fetchImpl });
+
+  view.querySelector('[data-action="save-remote-backup"]').click();
+  await tick(150);
+  check('muestra cuándo caduca la copia', document.getElementById('backupStatus').textContent.includes('Caduca el'), document.getElementById('backupStatus').textContent);
+  check('guarda la caducidad en el dispositivo', typeof JSON.parse(w.localStorage.getItem('moat.v1.backupExpires')) === 'string');
+
+  view.querySelector('[data-action="delete-remote-backup"]').click();
+  await tick(150);
+  check('borra la copia del servidor', deleted === 'ABCD-EFGH', String(deleted));
+  check('confirma el borrado', document.getElementById('backupStatus').textContent.includes('borrada del servidor'));
+  check('olvida el código', JSON.parse(w.localStorage.getItem('moat.v1.backupCode')) === null);
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
