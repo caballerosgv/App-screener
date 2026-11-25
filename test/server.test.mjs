@@ -434,6 +434,44 @@ test('sin token, /api/analysis puntúa con TradingView y la SEC', async () => {
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
 
+test('/api/screen explora el mercado sin token y cachea', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer({ marketSource: 'free' });
+  const values = {
+    name: 'Awesome Corp', close: 100, change: 1.2, market_cap_basic: 5e11,
+    price_earnings_ttm: 20, return_on_equity: 30, return_on_invested_capital: 25,
+    debt_to_equity: 0.3, gross_margin: 60, net_margin: 25, free_cash_flow: 1e10,
+    total_revenue: 5e10, beta_1_year: 1, sector: 'Technology', country: 'US',
+    currency: 'USD', exchange: 'NASDAQ', type: 'stock'
+  };
+  let scans = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (url.includes('scanner.tradingview.com/global/scan')) {
+      const body = JSON.parse(init.body);
+      if (!body.filter) return { ok: true, status: 200, json: async () => ({ totalCount: 0, data: [] }) };
+      scans += 1;
+      const row = { s: 'NASDAQ:AWES', d: body.columns.map((column) => values[column] ?? null) };
+      return { ok: true, status: 200, json: async () => ({ totalCount: 1200, data: [row] }) };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+
+  const res = await request(server, '/api/screen?market=US&limit=5', { ip: '10.14.0.1' });
+  check('responde 200', res.status === 200, `${res.status}/${res.body.error && res.body.error.code}`);
+  check('devuelve valores con nota', res.body.results.length === 1 && res.body.results[0].symbol === 'AWES.US' && res.body.results[0].quality > 0, JSON.stringify(res.body.results));
+  check('declara mercado, fuente y universo', res.body.market === 'US' && res.body.source === 'TradingView' && res.body.universe === 1200);
+
+  const cached = await request(server, '/api/screen?market=US&limit=5', { ip: '10.14.0.2' });
+  check('la segunda consulta sale de la caché', cached.status === 200 && scans === 1, String(scans));
+
+  const malo = await request(server, '/api/screen?market=XX', { ip: '10.14.0.3' });
+  check('mercado inválido → 400 invalid_market', malo.status === 400 && malo.body.error.code === 'invalid_market', `${malo.status}/${malo.body.error.code}`);
+  check('el explorador figura en /api/health', (await request(server, '/api/health', { ip: '10.14.0.4' })).body.supports.includes('screen'));
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
 test('/api/status cuenta qué fuentes responden y cuáles fallan', async () => {
   const { check, failures } = makeChecks();
   const server = await loadServer({ marketSource: 'free' });

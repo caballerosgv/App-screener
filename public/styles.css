@@ -609,6 +609,17 @@ textarea.note::placeholder { color: var(--dim); }
   .scale-row p { grid-column: 1 / -1; }
   .btn span.lbl { display: none; }
 }
+/* ---------- explorador de mercado ---------- */
+.screen-card .toolbar-row { flex-wrap: wrap; }
+.screen-link {
+  display: grid; gap: .05rem; width: 100%; text-align: left;
+  background: none; border: 0; padding: 0; color: var(--text); font: inherit; cursor: pointer;
+}
+.screen-link strong { font-size: .82rem; }
+.screen-link small { color: var(--dim); font-size: .7rem; }
+.screen-link:hover strong { color: var(--accent); }
+.screen-card table { width: 100%; }
+
 /* ---------- semáforo de fuentes ---------- */
 .src-health { margin-top: .7rem; }
 .src-title { margin: 0 0 .3rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); }

@@ -360,6 +360,32 @@ function renderScreener() {
       <p>Referencia: <strong>${top.name}</strong> ${top.score.toFixed(1)}/100</p>
     </div>
     <div id="screenerResults">${screenerRows()}</div>
+
+    <section class="card screen-card" style="margin-top:1.6rem">
+      <h3>Explorar el mercado</h3>
+      <p>Valores reales de EE. UU. o Europa con su nota aproximada de los 8 factores, calculada con ratios públicos (y cuentas de la SEC en EE. UU.). Se revisan los valores con más capitalización de cada mercado, no el universo completo.</p>
+      <div class="toolbar-row" style="margin-top:.8rem">
+        <label class="field">Mercado
+          <select id="smMarket">
+            <option value="US">EE. UU.</option>
+            <option value="EU">Europa</option>
+          </select>
+        </label>
+        <label class="field">Sector (texto)
+          <input id="smSector" type="text" maxlength="30" placeholder="technology, banks…" autocomplete="off" />
+        </label>
+        <label class="field">Capitalización mínima
+          <select id="smCap">
+            <option value="0">Cualquiera</option>
+            <option value="1000000000">1.000 M</option>
+            <option value="10000000000">10.000 M</option>
+            <option value="50000000000">50.000 M</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" type="button" data-action="screen-market">Explorar</button>
+      </div>
+      <div id="screenOut" aria-live="polite"><p class="note-hint" style="margin-top:.7rem">Elige mercado y pulsa «Explorar» para ver valores reales con su nota aproximada.</p></div>
+    </section>
   `;
 
   const refresh = () => {
@@ -382,6 +408,51 @@ function renderScreener() {
     document.getElementById('minOut').textContent = min.value;
     refresh();
   });
+}
+
+const capLabel = (value) => {
+  if (!value) return '—';
+  if (value >= 1e12) return `${(value / 1e12).toFixed(1)} B`;
+  if (value >= 1e9) return `${Math.round(value / 1e9)} MM`;
+  if (value >= 1e6) return `${Math.round(value / 1e6)} M`;
+  return String(Math.round(value));
+};
+
+async function screenMarketRun() {
+  const out = document.getElementById('screenOut');
+  if (!out) return;
+  const market = document.getElementById('smMarket').value;
+  const sector = document.getElementById('smSector').value.trim();
+  const minCap = document.getElementById('smCap').value;
+  out.innerHTML = '<p class="live-status">Revisando el mercado…</p>';
+  try {
+    const data = await api(`/api/screen?market=${market}&sector=${encodeURIComponent(sector)}&minCap=${minCap}&limit=40`);
+    if (!data.results.length) {
+      out.innerHTML = `<div class="empty"><strong>Sin resultados</strong>Prueba con otro sector o quita la capitalización mínima.</div>`;
+      return;
+    }
+    out.innerHTML = `<p class="note-hint" style="margin:.7rem 0 .5rem">${data.count} valores de ${data.reviewed} revisados · mercado de ${data.universe} valores · ${esc(data.source)} · nota aproximada</p>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th scope="col">Empresa</th><th scope="col" class="hide-sm">Sector</th>
+          <th scope="col" class="num">Nota</th><th scope="col" class="num">PER</th>
+          <th scope="col" class="num">ROIC</th><th scope="col" class="num hide-sm">Margen</th><th scope="col" class="num">Cap.</th>
+        </tr></thead>
+        <tbody>${data.results.map((row) => `<tr>
+          <td><button class="screen-link" type="button" data-symbol="${esc(row.symbol)}">
+            <strong>${esc(row.symbol)}</strong><small>${esc(row.name)}</small>
+          </button></td>
+          <td class="hide-sm">${esc(row.sector || '—')}</td>
+          <td class="num"><span class="score-num">${row.quality.toFixed(1)}</span></td>
+          <td class="num">${row.per ? row.per.toFixed(1) + '×' : '—'}</td>
+          <td class="num">${row.roic === null ? '—' : row.roic.toFixed(0) + ' %'}</td>
+          <td class="num hide-sm">${row.netMargin === null ? '—' : row.netMargin.toFixed(0) + ' %'}</td>
+          <td class="num">${capLabel(row.marketCap)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+  } catch (error) {
+    out.innerHTML = `<p class="live-status err">${esc(error.message)}</p>`;
+  }
 }
 
 /* ---------- ficha de empresa ---------- */
@@ -1780,6 +1851,7 @@ document.addEventListener('click', (e) => {
     if (a === 'save-remote-backup') { saveRemoteBackup(); return; }
     if (a === 'load-remote-backup') { loadRemoteBackup(); return; }
     if (a === 'delete-remote-backup') { deleteRemoteBackup(); return; }
+    if (a === 'screen-market') { screenMarketRun(); return; }
     if (a === 'live') { loadMarket(actionEl.dataset.t); return; }
     if (a === 'insiders') { loadInsiders(actionEl.dataset.t); return; }
     if (a === 'analyse') { runAnalysis(actionEl.dataset.t); return; }

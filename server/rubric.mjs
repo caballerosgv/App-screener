@@ -115,6 +115,18 @@ export function factorResult({ key, reasons, method, note = null }) {
   };
 }
 
+/** Pesos de la nota final (deben coincidir con `public/js/data.js`). */
+export const FACTOR_WEIGHTS = {
+  moat: 18,
+  management: 12,
+  growth: 14,
+  profitability: 14,
+  balance: 12,
+  valuation: 14,
+  risk: 8,
+  catalysts: 8
+};
+
 export const FACTOR_KEYS = [
   'moat',
   'management',

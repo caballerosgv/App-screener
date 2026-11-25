@@ -28,6 +28,7 @@ import { createYahooClient } from './yahoo.mjs';
 import { createSourceHealth } from './health.mjs';
 import { createSecXbrlClient } from './sec-xbrl.mjs';
 import { buildFreeAnalysis } from './free-analysis.mjs';
+import { screenMarket } from './free-screener.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -703,7 +704,7 @@ async function handleApi(url, res, req) {
       provider: USE_FREE_MARKET ? 'tradingview' : 'eodhd',
       fallbacks: USE_FREE_MARKET ? ['nasdaq', 'yahoo'] : undefined,
       demoTickers: !USE_FREE_MARKET && MODE === 'demo' ? DEMO_TICKERS : undefined,
-      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup', 'status'],
+      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup', 'status', 'screen'],
       time: new Date().toISOString()
     });
     return;
@@ -829,6 +830,38 @@ async function handleApi(url, res, req) {
     return;
   }
 
+  if (path === '/api/screen') {
+    if (!USE_FREE_MARKET) {
+      throw new HttpError(501, 'screen_unavailable', 'El explorador usa la fuente gratuita. Pon MARKET_SOURCE=free para usarlo.');
+    }
+    const market = String(params.get('market') || 'US').toUpperCase();
+    if (market !== 'US' && market !== 'EU') {
+      throw new HttpError(400, 'invalid_market', 'Mercado no válido: usa US o EU.');
+    }
+    const sector = String(params.get('sector') || '').trim().slice(0, 40);
+    const minCap = clampInt(params.get('minCap'), 0, 10_000_000_000_000, 0);
+    const limit = clampInt(params.get('limit'), 1, 100, 40);
+    const cacheKey = `screen:${market}:${sector.toLowerCase()}:${minCap}:${limit}`;
+    if (!refresh) {
+      const cached = cacheGet(cacheKey);
+      if (cached) {
+        sendJson(res, 200, cached);
+        return;
+      }
+    }
+    const started = Date.now();
+    try {
+      const data = await freeMarket(() => screenMarket({ market, sector, minCap, limit }));
+      health.record('TradingView', { ok: true, ms: Date.now() - started });
+      cacheSet(cacheKey, data, TTL.search);
+      sendJson(res, 200, data);
+    } catch (error) {
+      health.record('TradingView', { ok: false, ms: Date.now() - started, error });
+      throw error;
+    }
+    return;
+  }
+
   if (path === '/api/analysis') {
     const symbol = toProviderSymbol(params.get('symbol'));
     sendJson(res, 200, await getAnalysis(symbol, refresh));
@@ -845,7 +878,7 @@ async function handleApi(url, res, req) {
   throw new HttpError(
     404,
     'unknown_endpoint',
-    'Endpoint no encontrado. Disponibles: /api/health, /api/status, /api/search, /api/quote, /api/fundamentals, /api/analysis, /api/news.'
+    'Endpoint no encontrado. Disponibles: /api/health, /api/status, /api/search, /api/quote, /api/fundamentals, /api/analysis, /api/news, /api/screen.'
   );
 }
 

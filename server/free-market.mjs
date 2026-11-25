@@ -116,7 +116,7 @@ function splitSymbol(raw) {
 /** TradingView escribe las clases de acción con guion bajo: BRK-B → BRK_B. */
 const tvTicker = (code) => code.replace(/-/g, '_');
 
-function suffixFor(exchange, country) {
+export function suffixFor(exchange, country) {
   const name = String(exchange || '').toUpperCase();
   // El buscador devuelve "Euronext Amsterdam", no "EURONEXT": el país decide.
   if (name.startsWith('EURONEXT')) {
