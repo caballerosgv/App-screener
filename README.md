@@ -15,6 +15,32 @@ Screener para buscar y estudiar acciones de **EE. UU. y Europa** con un marco de
 
 > Los datos de perfil de las 24 empresas incluidas son de **demostración**. Las notas de los 8 factores pueden recalcularse con las cuentas reales de EODHD (ver *Notas automáticas*), pero la cotización, el perfil y las noticias reales también se piden a EODHD a través del proxy del servidor. Verifica siempre los datos con las cuentas oficiales antes de invertir.
 
+## Capturas
+
+Vistas de la app real, tomadas del build local. Los datos de las 24 empresas son de demostración; la tarjeta de mercado muestra la respuesta real de EODHD.
+
+**Screener de calidad** — filtros por mercado, sector y moat, y ranking por los 8 factores.
+
+![Screener de calidad con los filtros y el ranking por calidad](artifacts/screener.png)
+
+**Ficha de empresa** — tesis, riesgos, catalizadores, radar de calidad y rúbrica del factor abierto.
+
+![Ficha de ASML Holding con tesis, radar y rúbrica del MOAT](artifacts/ficha-desktop.png)
+
+**Comparador** — dos empresas lado a lado, radar superpuesto, veredicto y ganadora de cada factor.
+
+![Comparador Apple frente a Microsoft con radar superpuesto y veredicto](artifacts/comparador.png)
+
+**Screener de noticias** — titulares filtrables por mercado, categoría, sentimiento e impacto.
+
+![Screener de noticias con filtros por sentimiento e impacto](artifacts/noticias.png)
+
+**Datos de mercado** — cotización, perfil y titulares reales pedidos al proxy del servidor.
+
+![Tarjeta de datos de mercado de EODHD para Apple](artifacts/datos-eodhd.png)
+
+Recortes: [perfil de calidad](artifacts/radar.png) · [tabla del screener](artifacts/screener-tabla.png) · [cabecera del comparador](artifacts/comparador-cabecera.png) · [tablas del comparador](artifacts/comparador-tablas.png) · [ficha en móvil](artifacts/ficha-msft.png).
+
 ## Buscar cualquier valor
 
 La cabecera tiene un buscador que consulta `GET /api/search`, y el proxy lo resuelve contra el **buscador de símbolos de EODHD** (`/api/search/{consulta}`). El navegador nunca habla con el proveedor: solo con `/api/search`, que añade el token en el servidor.
@@ -182,6 +208,7 @@ Después, desde Android Studio puedes ejecutar en emulador o dispositivo físico
 - `public/`: la app (HTML, CSS y módulos JS sin dependencias).
 - `server/`: servidor estático y proxy de EODHD (incluye la rúbrica).
 - `test/`: pruebas en jsdom y fixtures de análisis.
+- `artifacts/`: capturas de la app enlazadas desde este README.
 - `.github/workflows/ci.yml`: pruebas y build en cada push.
 - `dist/`: salida de build web usada por Capacitor.
 
