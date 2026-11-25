@@ -787,7 +787,7 @@ function renderCompany(ticker, openIndex = 0) {
           <p style="font-size:.82rem;color:var(--muted)">Compras y ventas de directivos de los últimos 12 meses según los Form 4 de la SEC. Gratis, sin token y solo para empresas de EE. UU.</p>
           ${usListed
             ? `<button class="btn btn-sm" style="margin-top:.6rem" data-action="insiders" data-t="${esc(c.t)}">Cargar movimientos</button>`
-            : `<p class="note-hint">Este valor no presenta Form 4: los insiders solo se publican en EE. UU.</p>`}
+            : `<p style="font-size:.82rem;color:var(--muted);margin-top:.5rem">Este valor no presenta Form 4: los movimientos de directivos solo se publican en EE. UU.</p>`}
           <div id="insiderOut" style="margin-top:.7rem"></div>
         </section>
       </aside>
@@ -1616,6 +1616,13 @@ function insiderMoney(value) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
 }
 
+/** "2026-10-13" → "13 oct 2026". */
+function insiderDate(iso) {
+  const date = new Date(`${iso}T12:00:00`);
+  if (!iso || Number.isNaN(date.getTime())) return iso || '';
+  return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 function insiderHtml(data) {
   const summary = data.summary || {};
   const rows = Array.isArray(data.transactions) ? data.transactions.slice(0, 8) : [];
@@ -1623,20 +1630,33 @@ function insiderHtml(data) {
   const list = rows.length
     ? `<div class="live-news">${rows.map((tx) => `<a href="${esc(tx.url || '#')}" target="_blank" rel="noopener noreferrer">
         <strong>${esc(tx.owner)} · ${tx.code === 'P' ? 'compra' : 'venta'} ${num(tx.shares, 0)} acc.</strong>
-        <span>${esc(tx.transaction_date || '')}${tx.price_usd !== null && tx.price_usd !== undefined ? ' · ' + num(tx.price_usd, 2) + ' $/acc.' : ''}${tx.value_usd !== null && tx.value_usd !== undefined ? ' · ' + insiderMoney(tx.value_usd) : ''}${tx.plan_10b5_1 === true ? ' · plan 10b5-1' : ''}</span>
+        <span>${esc(insiderDate(tx.transaction_date))}${tx.price_usd !== null && tx.price_usd !== undefined ? ' · ' + num(tx.price_usd, 2) + ' $/acc.' : ''}${tx.value_usd !== null && tx.value_usd !== undefined ? ' · ' + insiderMoney(tx.value_usd) : ''}${tx.plan_10b5_1 === true ? ' · plan 10b5-1' : ''}</span>
       </a>`).join('')}</div>`
     : `<p class="note-hint">${esc(data.message || 'Sin operaciones de compra o venta en el periodo.')}</p>`;
 
   return `<div class="live-panel">
     <dl class="live-metrics">
-      <div><dt>Compras</dt><dd>${summary.purchase_count || 0}${summary.purchase_value_usd ? ` · ${insiderMoney(summary.purchase_value_usd)}` : ''}</dd></div>
-      <div><dt>Ventas</dt><dd>${summary.sale_count || 0}${summary.sale_value_usd ? ` · ${insiderMoney(summary.sale_value_usd)}` : ''}</dd></div>
+      <div><dt>Compras</dt><dd>${summary.purchase_count || 0}${summary.purchase_value_usd ? `<small>${insiderMoney(summary.purchase_value_usd)}</small>` : ''}</dd></div>
+      <div><dt>Ventas</dt><dd>${summary.sale_count || 0}${summary.sale_value_usd ? `<small>${insiderMoney(summary.sale_value_usd)}</small>` : ''}</dd></div>
       <div><dt>Ventas en plan 10b5-1</dt><dd>${summary.sale_plan_10b5_1_count || 0}</dd></div>
     </dl>
     ${list}
-    <p class="live-src">Fuente: SEC EDGAR · Form 4 · ${esc(data.period || '')}${data.truncated ? ` · se examinan los ${data.filings_examined} formularios más recientes` : ''}</p>
+    <p class="live-src">Fuente: SEC EDGAR · Form 4 · ${esc(data.period || '')}${data.truncated ? ` · revisados ${data.filings_examined} de ${data.filings_in_period}` : ''}</p>
     <p class="live-src">Operaciones de directivos, no posiciones institucionales 13F.</p>
   </div>`;
+}
+
+function insiderErrorMessage(error) {
+  const known = {
+    unsupported_market: 'Los movimientos de directivos solo cubren empresas de EE. UU.',
+    sec_user_agent: 'La SEC rechazó la petición: el servidor necesita SEC_USER_AGENT con un correo real.',
+    sec_rate_limit: 'La SEC está limitando las consultas. Espera un minuto y vuelve a intentarlo.',
+    not_found: 'La SEC no tiene formularios Form 4 para este valor.',
+    upstream_timeout: 'La SEC tardó demasiado en responder. Reintenta en unos segundos.'
+  };
+  const code = error && error.code;
+  if (code && known[code]) return known[code];
+  return 'No se pudo consultar la SEC. Revisa tu conexión e inténtalo de nuevo.';
 }
 
 async function loadInsiders(ticker) {
@@ -1647,7 +1667,7 @@ async function loadInsiders(ticker) {
     const data = await api(`/api/insiders?symbol=${encodeURIComponent(ticker)}`);
     out.innerHTML = insiderHtml(data);
   } catch (error) {
-    out.innerHTML = `<div class="live-status err">${esc(liveErrorMessage(error || {}))}</div>`;
+    out.innerHTML = `<div class="live-status err">${esc(insiderErrorMessage(error))}</div>`;
   }
 }
 

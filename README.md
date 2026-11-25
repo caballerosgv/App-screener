@@ -39,6 +39,10 @@ Vistas de la app real, tomadas del build local. Los datos de las 24 empresas son
 
 ![Tarjeta de datos de mercado de EODHD para Apple](artifacts/datos-eodhd.png)
 
+**Directivos** — compras y ventas de los Form 4 de la SEC, con el resumen del periodo y el plan 10b5-1.
+
+![Tarjeta de directivos con las ventas reales de Microsoft](artifacts/directivos-msft.png)
+
 Recortes: [perfil de calidad](artifacts/radar.png) · [tabla del screener](artifacts/screener-tabla.png) · [cabecera del comparador](artifacts/comparador-cabecera.png) · [tablas del comparador](artifacts/comparador-tablas.png) · [ficha en móvil](artifacts/ficha-msft.png).
 
 ## Buscar cualquier valor

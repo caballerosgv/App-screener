@@ -625,6 +625,7 @@ textarea.note::placeholder { color: var(--dim); }
 .live-metrics div { background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: .35rem .45rem; }
 .live-metrics dt { font-size: .58rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
 .live-metrics dd { margin: .1rem 0 0; font-family: var(--mono); font-size: .82rem; font-weight: 600; }
+.live-metrics dd small { display: block; margin-top: .1rem; font-size: .68rem; font-weight: 500; color: var(--muted); }
 .live-news { display: grid; gap: .1rem; }
 .live-news a { display: block; border-top: 1px solid var(--line-soft); padding: .45rem 0 .1rem; }
 .live-news a:hover strong { color: var(--accent); }
