@@ -23,6 +23,7 @@ import { SEC_USER_AGENT_DEFAULT, InsiderError, createInsiderClient } from './ins
 import { MarketError, createMarketClient } from './free-market.mjs';
 import { createNasdaqClient } from './nasdaq.mjs';
 import { createNewsClient } from './free-news.mjs';
+import { createYahooClient } from './yahoo.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -74,23 +75,42 @@ const USE_FREE_MARKET = MARKET_SOURCE === 'free' || (MARKET_SOURCE !== 'eodhd' &
 const market = createMarketClient();
 const nasdaq = createNasdaqClient();
 const freeNews = createNewsClient();
+const yahoo = createYahooClient();
 
-/** Cotización gratuita: TradingView y, si falla en un valor de EE. UU., Nasdaq. */
+/**
+ * Cotización gratuita en cadena: TradingView, Nasdaq (solo EE. UU.) y Yahoo.
+ * Se devuelve la primera que responda, con su fuente en `source`.
+ */
 async function freeQuote(symbol) {
+  const failed = [];
   try {
     return await market.quote(symbol);
   } catch (error) {
-    if (!(error instanceof MarketError) || !/\.US$/i.test(symbol)) throw error;
+    if (!(error instanceof MarketError)) throw error;
+    failed.push(`TradingView (${error.code})`);
+  }
+
+  if (/\.US$/i.test(symbol)) {
     try {
       return await nasdaq.quote(symbol);
-    } catch (second) {
-      throw new MarketError(
-        503,
-        'market_unavailable',
-        `Sin cotización gratuita para ${symbol}: TradingView (${error.code}) y Nasdaq (${second.code}).`
-      );
+    } catch (error) {
+      if (!(error instanceof MarketError)) throw error;
+      failed.push(`Nasdaq (${error.code})`);
     }
   }
+
+  try {
+    return await yahoo.quote(symbol);
+  } catch (error) {
+    if (!(error instanceof MarketError)) throw error;
+    failed.push(`Yahoo (${error.code})`);
+  }
+
+  throw new MarketError(
+    503,
+    'market_unavailable',
+    `Sin cotización gratuita para ${symbol}: ${failed.join(' y ')}.`
+  );
 }
 
 async function freeMarket(run) {
@@ -602,7 +622,7 @@ async function handleApi(url, res, req) {
       mode: MODE,
       keyConfigured: TOKEN !== 'demo',
       provider: USE_FREE_MARKET ? 'tradingview' : 'eodhd',
-      fallback: USE_FREE_MARKET ? 'nasdaq' : undefined,
+      fallbacks: USE_FREE_MARKET ? ['nasdaq', 'yahoo'] : undefined,
       demoTickers: !USE_FREE_MARKET && MODE === 'demo' ? DEMO_TICKERS : undefined,
       supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup'],
       time: new Date().toISOString()

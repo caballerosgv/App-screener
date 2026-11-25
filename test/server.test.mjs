@@ -467,11 +467,54 @@ test('si TradingView falla, la cotización de EE. UU. sale de Nasdaq', async () 
   check('precio del respaldo', apple.body.price === 355.58, String(apple.body.price));
 
   const europe = await request(server, '/api/quote?symbol=ASML.AS', { ip: '10.10.0.2' });
-  check('un valor europeo no cae a Nasdaq', europe.status === 503 && europe.body.error.code === 'market_rate_limit', `${europe.status}/${europe.body.error.code}`);
+  check('un valor europeo no cae a Nasdaq', europe.status === 503 && europe.body.error.code === 'market_unavailable', `${europe.status}/${europe.body.error.code}`);
+  check('y el aviso nombra las fuentes probadas', /TradingView/.test(europe.body.error.message) && /Yahoo/.test(europe.body.error.message), europe.body.error.message);
 
   globalThis.fetch = async (input) => (String(input).includes('api.nasdaq.com') ? respond(500, {}) : respond(429, {}));
   const roto = await request(server, '/api/quote?symbol=MSFT', { ip: '10.10.0.3' });
   check('las dos fuentes caídas se explican', roto.status === 503 && roto.body.error.code === 'market_unavailable', `${roto.status}/${roto.body.error.code}`);
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('si TradingView y Nasdaq fallan, la cotización sale de Yahoo', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer({ marketSource: 'auto' });
+  const calls = [];
+  const respond = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+  const chart = {
+    chart: {
+      result: [{
+        meta: {
+          regularMarketPrice: 355.58,
+          chartPreviousClose: 354.07,
+          regularMarketOpen: 354.5,
+          regularMarketDayHigh: 357.2,
+          regularMarketDayLow: 353.1,
+          regularMarketVolume: 54215490,
+          regularMarketTime: 1795000000,
+          currency: 'USD'
+        }
+      }]
+    }
+  };
+
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes('query1.finance.yahoo.com')) return respond(200, chart);
+    if (url.includes('api.nasdaq.com')) return respond(500, {});
+    return respond(429, {});
+  };
+
+  const apple = await request(server, '/api/quote?symbol=AAPL', { ip: '10.11.0.1' });
+  check('responde con Yahoo', apple.status === 200 && apple.body.source === 'Yahoo Finance', `${apple.status}/${apple.body.source}`);
+  check('con el precio del chart', apple.body.price === 355.58, String(apple.body.price));
+
+  const asml = await request(server, '/api/quote?symbol=ASML.AS', { ip: '10.11.0.2' });
+  check('un valor europeo también tiene respaldo', asml.status === 200 && asml.body.source === 'Yahoo Finance', `${asml.status}/${asml.body.source}`);
+  check('Europa no consulta Nasdaq', !calls.some((url) => url.includes('api.nasdaq.com/quote/ASML')), calls.join(' '));
+  check('Yahoo recibe el símbolo con su bolsa', calls.some((url) => url.includes('query1.finance.yahoo.com/v8/finance/chart/ASML.AS')), calls.join(' '));
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });

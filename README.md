@@ -109,7 +109,7 @@ Además de descargar el JSON, puedes **guardar la copia en el servidor** con un 
 
 ## Datos de mercado: fuentes y cómo se conecta
 
-Por defecto la app usa una **fuente gratuita sin clave** (los endpoints públicos del escáner y del buscador de TradingView): cotización, apertura, máximo, mínimo, capitalización, PER, sector y buscador para **todos los símbolos de EE. UU. y de las principales bolsas europeas** (`ASML.AS`, `SAP.DE`, `NESN.SW`, `MC.PA`, `IBE.MC`, `NOVO-B.CO`…). Si TradingView no responde para un valor de **EE. UU.**, el proxy reintenta con la **API pública de Nasdaq** (`api.nasdaq.com`, también sin clave) y lo indica en `source`; para Europa no hay respaldo. No son APIs con contrato estable, así que si fallan las dos el proxy devuelve un error claro (`market_*`) en vez de datos inventados.
+Por defecto la app usa una **fuente gratuita sin clave** (los endpoints públicos del escáner y del buscador de TradingView): cotización, apertura, máximo, mínimo, capitalización, PER, sector y buscador para **todos los símbolos de EE. UU. y de las principales bolsas europeas** (`ASML.AS`, `SAP.DE`, `NESN.SW`, `MC.PA`, `IBE.MC`, `NOVO-B.CO`…). La cotización se pide en cadena y se devuelve la primera que responda, con su nombre en `source`: **TradingView** → **Nasdaq** (`api.nasdaq.com`, solo EE. UU.) → **Yahoo Finance** (`chart` v8, cubre también Europa). Así la tarjeta sigue dando precio si una fuente bloquea o cambia; Yahoo puede devolver 429 si se le insiste desde una misma IP (lo he visto en esta máquina y desaparece solo), así que va el último. No son APIs con contrato estable: si fallan las tres, el proxy devuelve un error claro (`market_unavailable`) con el código de cada intento, nunca datos inventados. **MSN Dinero se descartó**: sus endpoints exigen la clave interna de la app de MSN y responden 401 sin ella.
 
 Con `EODHD_API_TOKEN` en `.env` el proxy pasa a **EODHD** (`MARKET_SOURCE=auto` usa EODHD solo si hay token; `free` fuerza la fuente gratuita y `eodhd` la exige). EODHD añade lo que la fuente gratuita no da: estados financieros para el análisis de los 8 factores, titulares y fundamentales completos. Alternativas descartadas para esa parte: FMP limita el plan gratuito a EE. UU.; Finnhub solo da fundamentales de EE. UU. salvo en su plan global; Twelve Data no ofrece noticias y sus fundamentales empiezan en el plan Grow.
 
@@ -117,7 +117,7 @@ La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expo
 
 | Endpoint | Devuelve | Caché |
 |---|---|---|
-| `GET /api/health` | estado del servidor, proveedor activo (TradingView gratis o EODHD) y respaldo de cotización (Nasdaq) | — |
+| `GET /api/health` | estado del servidor, proveedor activo (TradingView gratis o EODHD) y respaldos de cotización (Nasdaq, Yahoo) | — |
 | `GET /api/search?q=asml&limit=15` | valores de EE. UU. y Europa que coinciden con nombre o ticker | 24 h |
 | `GET /api/quote?symbol=AAPL` | cotización normalizada | 60 s |
 | `GET /api/fundamentals?symbol=ASML.AS` | perfil, sector, capitalización, PER, ROE… | 24 h |
@@ -173,13 +173,14 @@ npm test
 | `test/search.test.mjs` | Buscador de símbolos (panel, teclado, vista de resultados, error de token demo) y ficha de valores fuera del universo. |
 | `test/server.test.mjs` | Servidor y proxy: validación y normalización de símbolos, códigos de error normalizados, caché, límite por IP y `/api/health`, con el proveedor simulado y sin red. |
 | `test/free-news.test.mjs` | Titulares gratis: lectura del RSS (fechas, CDATA, HTML fuera del resumen), Yahoo primero, Google de respaldo y fallo explicado cuando ninguna responde. |
+| `test/yahoo.test.mjs` | Tercer escalón: mapeo del símbolo (`.US` fuera, Europa intacta), lectura del `chart`, fecha ISO y errores 429/500/sin datos/sin red. |
 | `test/nasdaq.test.mjs` | Respaldo de Nasdaq: parseo de importes, cierre de la sesión frente a after-hours, ETF, símbolo inexistente y errores 429/500. |
 | `test/free-market.test.mjs` | Fuente gratuita: resolución de tickers (EE. UU., Euronext, Xetra, SIX, OMX), cotización, fundamentales, buscador con sufijos de la app y errores del proveedor. |
 | `test/insiders.test.mjs` | Insiders: parser XML, Form 4 (solo P/S, derivados ignorados, plan 10b5-1), resumen, enmiendas 4/A, límites, caché del directorio y errores de la SEC, sin red. |
 | `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial, guardado y recuperación en el servidor con código, y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 474 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 493 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 
