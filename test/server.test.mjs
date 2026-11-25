@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import { rootPath, makeChecks } from './helpers.mjs';
+import { buildFundamentals } from './fixtures/fundamentals.mjs';
 
 const SERVER_ENTRY = pathToFileURL(rootPath('server/index.js')).href;
 let imports = 0;
@@ -286,6 +287,23 @@ test('la caché evita repetir llamadas al proveedor salvo con refresh=1', async 
   await request(server, '/api/fundamentals?symbol=MSFT', { ip: '10.4.0.6' });
   await request(server, '/api/fundamentals?symbol=MSFT', { ip: '10.4.0.6' });
   check('los fundamentales se cachean', provider.hits('/v1.1/fundamentals/') === 1, String(provider.hits('/v1.1/fundamentals/')));
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('/api/analysis devuelve la rúbrica con su versión', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer();
+  const provider = fakeProvider(() => fakeResponse(200, buildFundamentals()));
+  provider.install();
+
+  const res = await request(server, '/api/analysis?symbol=MSFT', { ip: '10.6.0.1' });
+  check('responde 200', res.status === 200, String(res.status));
+  check('el símbolo llega normalizado', res.body.symbol === 'MSFT.US', String(res.body.symbol));
+  check('incluye rubricVersion', /^\d+\.\d+\.\d+$/.test(res.body.rubricVersion || ''), String(res.body.rubricVersion));
+  check('los 8 factores con su nota', Object.keys(res.body.factors).length === 8, String(Object.keys(res.body.factors).length));
+  check('cobertura 7 de 8', res.body.coverage === 7 && res.body.total === 8, `${res.body.coverage}/${res.body.total}`);
+  check('marca la fuente de los datos', res.body.source === 'EODHD', String(res.body.source));
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });

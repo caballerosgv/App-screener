@@ -74,7 +74,7 @@ Cada factor se compone de indicadores con peso propio, y cada indicador se punt�
 | Años con ROIC ≥ 10 % | 30 % | < 40 % de los años → 2 · 40-60 % → 5 · 60-80 % → 6,5 · 80-90 % → 8 · todos → 10 |
 | Margen bruto actual | 20 % | < 20 % → 2,5 · 20-30 % → 4 · 30-45 % → 6 · 45-60 % → 9 · ≥ 60 % → 10 |
 
-La respuesta de `/api/analysis` incluye, por factor, la nota, la confianza (`alta`/`media`/`nula`), la lista de indicadores con su valor, banda y puntos, el método y las notas de cálculo. La app pinta esa tabla dentro de cada factor, de modo que cualquier nota puede auditarse número a número.
+La respuesta de `/api/analysis` incluye, por factor, la nota, la confianza (`alta`/`media`/`nula`), la lista de indicadores con su valor, banda y puntos, el método y las notas de cálculo. Incluye además `rubricVersion` (por ejemplo `1.0.0`): la versión de las bandas con la que se calculó la nota. Al cambiar umbrales, pesos o cálculos hay que subirla, de modo que una nota guardada se pueda auditar con las reglas que la produjeron y no con las de hoy. La app pinta esa tabla dentro de cada factor, de modo que cualquier nota puede auditarse número a número.
 
 - **Dirección** usa acciones en circulación, años con flujo de caja libre positivo y payout del dividendo.
 - **Crecimiento** usa CAGR de ingresos, años con ingresos crecientes y evolución del margen bruto.
@@ -144,8 +144,9 @@ npm test
 | `test/overrides.test.mjs` | Rúbrica automática, badges de origen, sobrescritura de notas, recálculo del total y persistencia. |
 | `test/search.test.mjs` | Buscador de símbolos (panel, teclado, vista de resultados, error de token demo) y ficha de valores fuera del universo. |
 | `test/server.test.mjs` | Servidor y proxy: validación y normalización de símbolos, códigos de error normalizados, caché, límite por IP y `/api/health`, con el proveedor simulado y sin red. |
+| `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 149 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 284 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 

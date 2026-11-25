@@ -10,6 +10,13 @@
  * neutral 5 con `available: false`, nunca una nota inventada.
  */
 
+/**
+ * Versión de la rúbrica. Súbela al cambiar bandas, pesos o cálculos: la nota
+ * guardada junto a esta versión se puede auditar con las reglas con las que
+ * se calculó, no con las de hoy.
+ */
+export const RUBRIC_VERSION = '1.0.0';
+
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function num(value) {
@@ -630,6 +637,7 @@ export function buildAnalysis(fundamentals, symbol) {
 
   return {
     symbol,
+    rubricVersion: RUBRIC_VERSION,
     name: general.Name || null,
     sector: general.Sector || null,
     industry: general.Industry || null,

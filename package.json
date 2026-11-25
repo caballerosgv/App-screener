@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node server/index.js",
     "start": "node server/index.js",
-    "test": "node --test test/app.test.mjs test/overrides.test.mjs test/search.test.mjs test/server.test.mjs",
+    "test": "node --test test/app.test.mjs test/overrides.test.mjs test/search.test.mjs test/server.test.mjs test/rubric.test.mjs",
     "build": "rm -rf dist && mkdir -p dist && cp -R public/. dist/",
     "android:add": "npx cap add android",
     "android:sync": "npx cap sync android",
