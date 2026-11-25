@@ -19,6 +19,7 @@ import { buildAnalysis } from './rubric.mjs';
 import {
   MAX_BACKUP_BYTES, createBackupCode, normalizeBackupCode, validateBackupPayload
 } from './backup.mjs';
+import { SEC_USER_AGENT_DEFAULT, InsiderError, createInsiderClient } from './insiders.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -58,6 +59,8 @@ const MODE = TOKEN === 'demo' ? 'demo' : 'live';
 const UPSTREAM_TIMEOUT = Number(process.env.UPSTREAM_TIMEOUT_MS || 9000);
 const DATA_DIR = resolve(process.env.MOAT_DATA_DIR || join(ROOT, '.data'));
 const BACKUP_DIR = join(DATA_DIR, 'backups');
+const SEC_USER_AGENT = process.env.SEC_USER_AGENT || SEC_USER_AGENT_DEFAULT;
+const insiders = createInsiderClient({ userAgent: SEC_USER_AGENT });
 
 const DEMO_TICKERS = ['AAPL.US', 'AMZN.US', 'TSLA.US', 'VTI.US'];
 
@@ -122,7 +125,16 @@ function toProviderSymbol(raw) {
 }
 
 /* ---------- caché y límite de peticiones ---------- */
-const TTL = { quote: 60_000, fundamentals: 86_400_000, news: 600_000, search: 86_400_000 };
+const TTL = { quote: 60_000, fundamentals: 86_400_000, news: 600_000, search: 86_400_000, insiders: 3_600_000 };
+
+/** Entero acotado entre min y max, con valor por defecto si no es un número. */
+function clampInt(value, min, max, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.trunc(parsed), min), max);
+}
+
 const cache = new Map();
 
 function cacheGet(key) {
@@ -515,7 +527,7 @@ async function handleApi(url, res, req) {
       mode: MODE,
       keyConfigured: TOKEN !== 'demo',
       demoTickers: MODE === 'demo' ? DEMO_TICKERS : undefined,
-      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'backup'],
+      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'insiders', 'backup'],
       time: new Date().toISOString()
     });
     return;
@@ -565,6 +577,29 @@ async function handleApi(url, res, req) {
     const query = params.get('q') || params.get('query') || '';
     const limit = Math.min(Math.max(Number(params.get('limit') || 15), 1), 30);
     sendJson(res, 200, await getSearch(query, limit, refresh));
+    return;
+  }
+
+  if (path === '/api/insiders') {
+    const symbol = toProviderSymbol(params.get('symbol'));
+    const months = clampInt(params.get('months'), 1, 24, 12);
+    const limit = clampInt(params.get('limit'), 1, 40, 12);
+    const cacheKey = `insiders:${symbol}:${months}:${limit}`;
+    if (!refresh) {
+      const cached = cacheGet(cacheKey);
+      if (cached) {
+        sendJson(res, 200, cached);
+        return;
+      }
+    }
+    try {
+      const data = await insiders.fetchInsiders(symbol, { months, limit });
+      cacheSet(cacheKey, data, TTL.insiders);
+      sendJson(res, 200, data);
+    } catch (error) {
+      if (error instanceof InsiderError) throw new HttpError(error.status, error.code, error.message);
+      throw error;
+    }
     return;
   }
 

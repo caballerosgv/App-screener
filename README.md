@@ -109,8 +109,18 @@ La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expo
 | `GET /api/fundamentals?symbol=ASML.AS` | perfil, sector, capitalización, PER, ROE… | 24 h |
 | `GET /api/news?symbol=MSFT&limit=10` | titulares con enlace y sentimiento | 10 min |
 | `GET /api/analysis?symbol=AAPL.US` | nota y rúbrica de los 8 factores con las cuentas reales | 24 h |
+| `GET /api/insiders?symbol=AAPL.US&months=12&limit=12` | compras y ventas de directivos según los Form 4 de la SEC (sin token) | 1 h |
 | `POST /api/backup` | guarda una copia del trabajo y devuelve un código corto (o actualiza la del código indicado) | — |
 | `GET /api/backup?code=ABCD-EFGH` | devuelve la copia guardada con ese código | — |
+
+### Movimientos de directivos (SEC, gratis)
+
+`/api/insiders` lee los **Form 4 de SEC EDGAR** y devuelve solo compras y ventas de acciones ordinarias (códigos P y S): fecha, directivo, acciones, precio, importe, si la venta estaba acogida a un plan 10b5-1 y enlace al formulario. **No usa ninguna clave**: la SEC solo pide un User-Agent con un contacto real, que se configura con `SEC_USER_AGENT` en `.env` (sin él responde 403 y el proxy lo explica con `sec_user_agent`).
+
+- Solo cubre empresas de **EE. UU.**; para un valor europeo responde `unsupported_market` (400).
+- Descarta los códigos que no son P/S, ignora la tabla de derivados y no duplica una operación repetida en una enmienda 4/A (se queda con la presentación más reciente).
+- La respuesta se cachea 1 h; con `limit=12` son como mucho ~25 peticiones a la SEC por consulta (una cada 120 ms), así que en la app se pide al pulsar *Cargar movimientos* en la ficha, no al abrirla.
+- Son operaciones de directivos, **no** posiciones institucionales 13F.
 
 ### Puesta en marcha
 
@@ -148,10 +158,11 @@ npm test
 | `test/overrides.test.mjs` | Rúbrica automática, badges de origen, sobrescritura de notas, recálculo del total y persistencia. |
 | `test/search.test.mjs` | Buscador de símbolos (panel, teclado, vista de resultados, error de token demo) y ficha de valores fuera del universo. |
 | `test/server.test.mjs` | Servidor y proxy: validación y normalización de símbolos, códigos de error normalizados, caché, límite por IP y `/api/health`, con el proveedor simulado y sin red. |
+| `test/insiders.test.mjs` | Insiders: parser XML, Form 4 (solo P/S, derivados ignorados, plan 10b5-1), resumen, enmiendas 4/A, límites, caché del directorio y errores de la SEC, sin red. |
 | `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial, guardado y recuperación en el servidor con código, y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 344 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 384 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 

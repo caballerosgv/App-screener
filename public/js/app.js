@@ -659,6 +659,7 @@ function renderCompany(ticker, openIndex = 0) {
   const news = relatedNews(c);
   const watched = state.checks[c.t] || {};
   const m = analysis && analysis.inputs ? analysis.inputs : c.metrics;
+  const usListed = /\.US$/i.test(providerSymbol(c.t)) && (!c.region || c.region === 'US');
 
   const sourceText =
     total.source === 'auto'
@@ -779,6 +780,15 @@ function renderCompany(ticker, openIndex = 0) {
           <button class="btn btn-sm" style="margin-top:.6rem" data-action="live" data-t="${esc(c.t)}">Cargar datos reales</button>
           <div id="liveOut" style="margin-top:.7rem"></div>
           <p class="note-hint" id="liveHint">Con el token demo de EODHD solo responden AAPL, AMZN, TSLA y VTI.</p>
+        </section>
+
+        <section class="card" id="insiderSlot">
+          <div class="panel-title">Directivos <span>SEC</span></div>
+          <p style="font-size:.82rem;color:var(--muted)">Compras y ventas de directivos de los últimos 12 meses según los Form 4 de la SEC. Gratis, sin token y solo para empresas de EE. UU.</p>
+          ${usListed
+            ? `<button class="btn btn-sm" style="margin-top:.6rem" data-action="insiders" data-t="${esc(c.t)}">Cargar movimientos</button>`
+            : `<p class="note-hint">Este valor no presenta Form 4: los insiders solo se publican en EE. UU.</p>`}
+          <div id="insiderOut" style="margin-top:.7rem"></div>
         </section>
       </aside>
     </div>
@@ -1600,6 +1610,47 @@ async function loadMarket(ticker) {
 }
 
 
+/* ---------- directivos (SEC Form 4) ---------- */
+function insiderMoney(value) {
+  if (value === null || value === undefined) return '—';
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+}
+
+function insiderHtml(data) {
+  const summary = data.summary || {};
+  const rows = Array.isArray(data.transactions) ? data.transactions.slice(0, 8) : [];
+
+  const list = rows.length
+    ? `<div class="live-news">${rows.map((tx) => `<a href="${esc(tx.url || '#')}" target="_blank" rel="noopener noreferrer">
+        <strong>${esc(tx.owner)} · ${tx.code === 'P' ? 'compra' : 'venta'} ${num(tx.shares, 0)} acc.</strong>
+        <span>${esc(tx.transaction_date || '')}${tx.price_usd !== null && tx.price_usd !== undefined ? ' · ' + num(tx.price_usd, 2) + ' $/acc.' : ''}${tx.value_usd !== null && tx.value_usd !== undefined ? ' · ' + insiderMoney(tx.value_usd) : ''}${tx.plan_10b5_1 === true ? ' · plan 10b5-1' : ''}</span>
+      </a>`).join('')}</div>`
+    : `<p class="note-hint">${esc(data.message || 'Sin operaciones de compra o venta en el periodo.')}</p>`;
+
+  return `<div class="live-panel">
+    <dl class="live-metrics">
+      <div><dt>Compras</dt><dd>${summary.purchase_count || 0}${summary.purchase_value_usd ? ` · ${insiderMoney(summary.purchase_value_usd)}` : ''}</dd></div>
+      <div><dt>Ventas</dt><dd>${summary.sale_count || 0}${summary.sale_value_usd ? ` · ${insiderMoney(summary.sale_value_usd)}` : ''}</dd></div>
+      <div><dt>Ventas en plan 10b5-1</dt><dd>${summary.sale_plan_10b5_1_count || 0}</dd></div>
+    </dl>
+    ${list}
+    <p class="live-src">Fuente: SEC EDGAR · Form 4 · ${esc(data.period || '')}${data.truncated ? ` · se examinan los ${data.filings_examined} formularios más recientes` : ''}</p>
+    <p class="live-src">Operaciones de directivos, no posiciones institucionales 13F.</p>
+  </div>`;
+}
+
+async function loadInsiders(ticker) {
+  const out = document.getElementById('insiderOut');
+  if (!out) return;
+  out.innerHTML = `<p style="font-size:.8rem;color:var(--dim)">Consultando los Form 4 de la SEC…</p>`;
+  try {
+    const data = await api(`/api/insiders?symbol=${encodeURIComponent(ticker)}`);
+    out.innerHTML = insiderHtml(data);
+  } catch (error) {
+    out.innerHTML = `<div class="live-status err">${esc(liveErrorMessage(error || {}))}</div>`;
+  }
+}
+
 /* ---------- eventos globales ---------- */
 document.addEventListener('click', (e) => {
   const symbolBtn = e.target.closest('[data-symbol]');
@@ -1648,6 +1699,7 @@ document.addEventListener('click', (e) => {
     if (a === 'save-remote-backup') { saveRemoteBackup(); return; }
     if (a === 'load-remote-backup') { loadRemoteBackup(); return; }
     if (a === 'live') { loadMarket(actionEl.dataset.t); return; }
+    if (a === 'insiders') { loadInsiders(actionEl.dataset.t); return; }
     if (a === 'analyse') { runAnalysis(actionEl.dataset.t); return; }
     if (a === 'goto-search') {
       const q = String(actionEl.dataset.q || '');

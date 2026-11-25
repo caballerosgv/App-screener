@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { rootPath, makeChecks } from './helpers.mjs';
 import { buildFundamentals } from './fixtures/fundamentals.mjs';
+import { fakeSecFetch } from './fixtures/sec.mjs';
 
 const SERVER_ENTRY = pathToFileURL(rootPath('server/index.js')).href;
 let imports = 0;
@@ -372,6 +373,30 @@ test('la copia en el servidor se guarda, se recupera y sobrevive al reinicio', a
   check('más de 1 MB → 413 payload_too_large', grande.status === 413 && grande.body.error.code === 'payload_too_large', `${grande.status}/${grande.body.error.code}`);
   const postOtro = await request(server, '/api/quote', { method: 'POST', ip: '10.7.0.11', body: {} });
   check('POST fuera de /api/backup → 405', postOtro.status === 405 && postOtro.body.error.code === 'method_not_allowed');
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('/api/insiders consulta SEC, solo admite EE. UU. y cachea', async () => {
+  const { check, failures } = makeChecks();
+  const server = await loadServer();
+  const sec = fakeSecFetch();
+  globalThis.fetch = sec.fetchImpl;
+
+  const primera = await request(server, '/api/insiders?symbol=AAPL', { ip: '10.8.0.1' });
+  check('responde 200', primera.status === 200, String(primera.status));
+  check('normaliza el símbolo y marca la fuente', primera.body.symbol === 'AAPL.US' && primera.body.source === 'SEC EDGAR Form 4', `${primera.body.symbol}/${primera.body.source}`);
+  check('devuelve el resumen de compras y ventas', primera.body.summary.purchase_count === 1 && primera.body.summary.sale_count === 4, JSON.stringify(primera.body.summary));
+
+  const llamadasTrasPrimera = sec.calls.length;
+  const segunda = await request(server, '/api/insiders?symbol=AAPL', { ip: '10.8.0.2' });
+  check('la segunda consulta sale de la caché', segunda.status === 200 && sec.calls.length === llamadasTrasPrimera, `${sec.calls.length}/${llamadasTrasPrimera}`);
+
+  const refrescada = await request(server, '/api/insiders?symbol=AAPL&refresh=1', { ip: '10.8.0.3' });
+  check('refresh=1 vuelve a la SEC', refrescada.status === 200 && sec.calls.length > llamadasTrasPrimera, String(sec.calls.length));
+
+  const europea = await request(server, '/api/insiders?symbol=ASML.AS', { ip: '10.8.0.4' });
+  check('una empresa europea → 400 unsupported_market', europea.status === 400 && europea.body.error.code === 'unsupported_market', `${europea.status}/${europea.body.error.code}`);
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
