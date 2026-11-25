@@ -306,6 +306,13 @@ tbody tr:last-child td { border-bottom: 0; }
 .card p { font-size: .875rem; color: #c6d2e2; }
 .card p + p { margin-top: .6rem; }
 
+.backup-code {
+  width: 9.5rem; text-transform: uppercase; font-family: var(--mono); letter-spacing: .08em;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: .42rem .55rem; color: var(--text); font-size: .82rem;
+}
+.backup-code:focus { outline: none; border-color: rgba(94, 234, 212, .45); }
+
 .backup-status { margin-top: .7rem; font-size: .82rem; color: var(--muted); min-height: 1.1em; }
 .backup-status.error { color: var(--bad); }
 .prose-list { margin: .2rem 0 0; padding-left: 1.05rem; color: #c6d2e2; font-size: .86rem; }

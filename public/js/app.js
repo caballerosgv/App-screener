@@ -1,7 +1,7 @@
 import { COMPANIES, NEWS, FRAMEWORK, PROCESS, SCALE, MOAT_TYPES } from './data.js';
 import {
   weightedScore, band, avg, pct, num, cap, mult, dateLabel, esc, tone, store, REGION_LABEL,
-  buildBackup, parseBackup, describeBackup
+  buildBackup, parseBackup, describeBackup, normalizeBackupCode
 } from './lib.js';
 
 const SHORT = ['MOAT', 'Dirección', 'Crecimiento', 'Rentabilidad', 'Balance', 'Valoración', 'Riesgo', 'Catalizadores'];
@@ -1207,6 +1207,13 @@ async function importBackup(file) {
     return;
   }
 
+  applyBackup(parsed);
+  renderWatchlist();
+  setBackupStatus(`Copia importada. ${backupSummary(describeBackup(parsed))}.`);
+}
+
+/** Aplica una copia ya validada al estado y al almacenamiento del dispositivo. */
+function applyBackup(parsed) {
   for (const key of parsed.keys) {
     const value = parsed.data[key];
     if (key === 'watchlist') {
@@ -1233,10 +1240,45 @@ async function importBackup(file) {
       store.set('checks', value);
     }
   }
-
   recomputeScores();
-  renderWatchlist();
-  setBackupStatus(`Copia importada. ${backupSummary(describeBackup(parsed))}.`);
+}
+
+const BACKUP_CODE_KEY = 'backupCode';
+
+async function saveRemoteBackup() {
+  const payload = buildBackup(backupData());
+  const code = normalizeBackupCode(store.get(BACKUP_CODE_KEY, null));
+  try {
+    const saved = await api(`/api/backup${code ? `?code=${encodeURIComponent(code)}` : ''}`, { method: 'POST', body: payload });
+    store.set(BACKUP_CODE_KEY, saved.code);
+    renderWatchlist();
+    setBackupStatus(`Copia guardada en el servidor con el código ${saved.code}. ${backupSummary(describeBackup(payload))}.`);
+  } catch (error) {
+    setBackupStatus(error.message || 'No se pudo guardar la copia en el servidor.', true);
+  }
+}
+
+async function loadRemoteBackup() {
+  const input = document.getElementById('backupCode');
+  const code = normalizeBackupCode(input ? input.value : '');
+  if (!code) {
+    setBackupStatus('Escribe el código de 8 caracteres de la copia (por ejemplo ABCD-EFGH).', true);
+    return;
+  }
+  try {
+    const remote = await api(`/api/backup?code=${encodeURIComponent(code)}`);
+    const parsed = parseBackup(JSON.stringify(remote));
+    if (!parsed.ok) {
+      setBackupStatus(parsed.error, true);
+      return;
+    }
+    applyBackup(parsed);
+    store.set(BACKUP_CODE_KEY, code);
+    renderWatchlist();
+    setBackupStatus(`Copia recuperada del servidor (${code}). ${backupSummary(describeBackup(parsed))}.`);
+  } catch (error) {
+    setBackupStatus(error.message || 'No se pudo recuperar la copia del servidor.', true);
+  }
 }
 
 /* ---------- seguimiento ---------- */
@@ -1246,9 +1288,13 @@ function renderWatchlist() {
     ...[...state.watchlist].filter((t) => !BY.has(t)).map((t) => remoteCompany(t))
   ];
   const lastExport = store.get(BACKUP_AT, null);
+  const remoteCode = normalizeBackupCode(store.get(BACKUP_CODE_KEY, null));
   const backupMeta = `Ahora mismo — ${backupSummary(describeBackup(backupData()))}. ${
     lastExport ? `Última copia: ${new Date(lastExport).toLocaleString('es-ES')}.` : 'Todavía no has exportado ninguna copia.'
   }`;
+  const remoteNote = remoteCode
+    ? `Última copia en el servidor: ${remoteCode}. Vuelve a guardar para actualizarla.`
+    : 'Todavía no has guardado ninguna copia en el servidor.';
 
   view.innerHTML = `
     <div class="page-head">
@@ -1291,6 +1337,16 @@ function renderWatchlist() {
         <button class="btn" type="button" data-action="import-backup">Importar JSON</button>
         <input id="backupFile" type="file" accept="application/json,.json" hidden />
       </div>
+      <h4 style="margin-top:1.2rem">Copia en el servidor</h4>
+      <p>Guarda la misma copia en el proxy con un código corto y recupérala en otro dispositivo. Cualquiera que tenga el código puede leerla: trátalo como una contraseña.</p>
+      <div class="toolbar-row" style="margin-top:.8rem">
+        <button class="btn" type="button" data-action="save-remote-backup">Guardar en el servidor</button>
+        <label class="field" for="backupCode">Código
+          <input id="backupCode" class="backup-code" type="text" inputmode="latin" autocomplete="off" spellcheck="false" placeholder="ABCD-EFGH" maxlength="9" value="${esc(remoteCode || '')}" />
+        </label>
+        <button class="btn" type="button" data-action="load-remote-backup">Recuperar</button>
+      </div>
+      <p class="meta" style="margin-top:.5rem">${esc(remoteNote)}</p>
       <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
     </section>
   `;
@@ -1386,12 +1442,17 @@ function renderFramework() {
 const API_BASE = window.MOAT_API_BASE || '';
 const API_TIMEOUT = 12000;
 
-async function api(path) {
+async function api(path, { method = 'GET', body } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+  const init = { method, headers: { accept: 'application/json' }, signal: controller.signal };
+  if (body !== undefined) {
+    init.headers['content-type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, { headers: { accept: 'application/json' }, signal: controller.signal });
+    res = await fetch(`${API_BASE}${path}`, init);
   } catch (err) {
     clearTimeout(timer);
     throw new Error(err && err.name === 'AbortError'
@@ -1400,20 +1461,20 @@ async function api(path) {
   }
   clearTimeout(timer);
 
-  let body = null;
+  let resBody = null;
   try {
-    body = await res.json();
+    resBody = await res.json();
   } catch {
-    body = null;
+    resBody = null;
   }
   if (!res.ok) {
-    const message = body && body.error && body.error.message ? body.error.message : `El servidor respondió ${res.status}.`;
+    const message = resBody && resBody.error && resBody.error.message ? resBody.error.message : `El servidor respondió ${res.status}.`;
     const error = new Error(message);
     error.status = res.status;
-    error.code = body && body.error ? body.error.code : 'http_error';
+    error.code = resBody && resBody.error ? resBody.error.code : 'http_error';
     throw error;
   }
-  return body;
+  return resBody;
 }
 
 function setStatus(html) {
@@ -1584,6 +1645,8 @@ document.addEventListener('click', (e) => {
     }
     if (a === 'check-server') { checkServer(); return; }
     if (a === 'export-backup') { exportBackup(); return; }
+    if (a === 'save-remote-backup') { saveRemoteBackup(); return; }
+    if (a === 'load-remote-backup') { loadRemoteBackup(); return; }
     if (a === 'live') { loadMarket(actionEl.dataset.t); return; }
     if (a === 'analyse') { runAnalysis(actionEl.dataset.t); return; }
     if (a === 'goto-search') {

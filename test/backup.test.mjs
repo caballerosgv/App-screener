@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mountApp, makeChecks, offlineFetch } from './helpers.mjs';
-import { buildBackup, parseBackup, describeBackup, BACKUP_KEYS, BACKUP_VERSION } from '../public/js/lib.js';
+import { buildBackup, parseBackup, describeBackup, BACKUP_KEYS, BACKUP_VERSION, normalizeBackupCode } from '../public/js/lib.js';
+import { BACKUP_KEYS as SERVER_BACKUP_KEYS, normalizeBackupCode as normalizeServerCode } from '../server/backup.mjs';
 
 const SEED = {
   'moat.v1.watchlist': ['AAPL', 'MSFT'],
@@ -49,6 +50,15 @@ test('la copia incluye todas las secciones y se puede volver a leer', async () =
     'las etiquetas están en español',
     resumen.map((e) => e.label).join(',') === 'seguimiento,notas,checklists,noticias leídas,análisis automáticos,sobrescrituras,perfiles remotos',
     resumen.map((e) => e.label).join(',')
+  );
+
+  check(
+    'cliente y servidor comparten secciones y códigos',
+    JSON.stringify(BACKUP_KEYS) === JSON.stringify(SERVER_BACKUP_KEYS) &&
+      normalizeBackupCode('abcd efgh') === normalizeServerCode('abcd efgh') &&
+      normalizeBackupCode('abc') === null &&
+      normalizeBackupCode('ABCD-EFG0') === null,
+    normalizeBackupCode('abcd efgh')
   );
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
@@ -162,6 +172,55 @@ test('importar sustituye solo las secciones del archivo y avisa de lo hecho', as
   const errorEl = document.getElementById('backupStatus');
   check('un archivo inválido se explica', errorEl.textContent.includes('JSON válido') && errorEl.classList.contains('error'), errorEl.textContent);
   check('un archivo inválido no cambia los datos', JSON.parse(w.localStorage.getItem('moat.v1.notes')).AAPL === 'Solo notas');
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('guardar y recuperar la copia desde el servidor con un código', async () => {
+  const { check, failures } = makeChecks();
+  let saved = null;
+  const fetchImpl = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes('/api/backup') && init.method === 'POST') {
+      const payload = JSON.parse(init.body);
+      saved = { code: 'ABCD-EFGH', version: payload.version, exportedAt: payload.exportedAt, data: payload.data };
+      return { ok: true, status: 201, json: async () => saved };
+    }
+    if (target.includes('/api/backup?code=')) {
+      const code = decodeURIComponent(target.split('code=')[1]);
+      if (!saved || code !== saved.code) {
+        return { ok: false, status: 404, json: async () => ({ error: { code: 'not_found', message: 'No hay ninguna copia con ese código.' } }) };
+      }
+      return { ok: true, status: 200, json: async () => saved };
+    }
+    return { ok: false, status: 404, json: async () => ({ error: { message: 'sin datos' } }) };
+  };
+  const { w, view, document } = await mountApp({ hash: '#/seguimiento', storage: SEED, fetchImpl });
+
+  view.querySelector('[data-action="save-remote-backup"]').click();
+  await tick(150);
+  check('muestra el código devuelto', document.getElementById('backupCode').value === 'ABCD-EFGH', document.getElementById('backupCode').value);
+  check('recuerda el código en el dispositivo', JSON.parse(w.localStorage.getItem('moat.v1.backupCode')) === 'ABCD-EFGH');
+  check('avisa de la copia guardada', document.getElementById('backupStatus').textContent.includes('guardada en el servidor'));
+  check('envía las 7 secciones al servidor', !!saved && Object.keys(saved.data).length === BACKUP_KEYS.length, String(saved && Object.keys(saved.data).length));
+
+  w.localStorage.setItem('moat.v1.notes', JSON.stringify({ OTRA: 'distinta' }));
+  document.getElementById('backupCode').value = 'abcd efgh';
+  view.querySelector('[data-action="load-remote-backup"]').click();
+  await tick(200);
+  check('recupera las notas del servidor', JSON.parse(w.localStorage.getItem('moat.v1.notes')).AAPL === 'Comprar si cae', w.localStorage.getItem('moat.v1.notes'));
+  check('avisa de la recuperación', document.getElementById('backupStatus').textContent.includes('Copia recuperada'));
+
+  document.getElementById('backupCode').value = 'ZZZZ-ZZZZ';
+  view.querySelector('[data-action="load-remote-backup"]').click();
+  await tick(150);
+  const status = document.getElementById('backupStatus');
+  check('explica el código desconocido', status.textContent.includes('No hay ninguna copia') && status.classList.contains('error'), status.textContent);
+
+  document.getElementById('backupCode').value = 'abc';
+  view.querySelector('[data-action="load-remote-backup"]').click();
+  await tick(80);
+  check('exige un código de 8 caracteres', document.getElementById('backupStatus').textContent.includes('8 caracteres'));
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });

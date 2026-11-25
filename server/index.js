@@ -11,11 +11,14 @@
  */
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildAnalysis } from './rubric.mjs';
+import {
+  MAX_BACKUP_BYTES, createBackupCode, normalizeBackupCode, validateBackupPayload
+} from './backup.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -53,6 +56,8 @@ const API_BASE = (process.env.EODHD_BASE_URL || 'https://eodhd.com/api').replace
 const TOKEN = process.env.EODHD_API_TOKEN || 'demo';
 const MODE = TOKEN === 'demo' ? 'demo' : 'live';
 const UPSTREAM_TIMEOUT = Number(process.env.UPSTREAM_TIMEOUT_MS || 9000);
+const DATA_DIR = resolve(process.env.MOAT_DATA_DIR || join(ROOT, '.data'));
+const BACKUP_DIR = join(DATA_DIR, 'backups');
 
 const DEMO_TICKERS = ['AAPL.US', 'AMZN.US', 'TSLA.US', 'VTI.US'];
 
@@ -387,6 +392,64 @@ async function getNews(symbol, limit, refresh) {
   return items;
 }
 
+/* ---------- copias de seguridad ---------- */
+const backupPath = (code) => join(BACKUP_DIR, `${code.replace('-', '')}.json`);
+
+async function readBackupFile(code) {
+  try {
+    return JSON.parse(await readFile(backupPath(code), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function writeBackupFile(code, record) {
+  await mkdir(BACKUP_DIR, { recursive: true });
+  const target = backupPath(code);
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmp, JSON.stringify(record), 'utf8');
+  await rename(tmp, target);
+}
+
+async function createBackup(payload) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = createBackupCode();
+    if (await readBackupFile(code)) continue;
+    const now = new Date().toISOString();
+    const record = {
+      code,
+      version: payload.version,
+      exportedAt: payload.exportedAt,
+      keys: payload.keys,
+      data: payload.data,
+      createdAt: now,
+      updatedAt: now
+    };
+    await writeBackupFile(code, record);
+    return record;
+  }
+  throw new HttpError(503, 'code_unavailable', 'No se pudo reservar un código para la copia. Inténtalo de nuevo.');
+}
+
+async function readJsonBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_BACKUP_BYTES) {
+      throw new HttpError(413, 'payload_too_large', 'La copia supera el tamaño máximo de 1 MB.');
+    }
+    chunks.push(chunk);
+  }
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (!text.trim()) throw new HttpError(400, 'invalid_backup', 'La petición no incluye la copia.');
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(400, 'invalid_backup', 'La copia no es un JSON válido.');
+  }
+}
+
 /* ---------- HTTP ---------- */
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -441,7 +504,7 @@ async function serveStatic(res, pathname) {
   createReadStream(filePath).pipe(res);
 }
 
-async function handleApi(url, res) {
+async function handleApi(url, res, req) {
   const path = url.pathname;
   const params = url.searchParams;
   const refresh = params.get('refresh') === '1';
@@ -452,9 +515,49 @@ async function handleApi(url, res) {
       mode: MODE,
       keyConfigured: TOKEN !== 'demo',
       demoTickers: MODE === 'demo' ? DEMO_TICKERS : undefined,
-      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search'],
+      supports: ['quote', 'fundamentals', 'analysis', 'news', 'search', 'backup'],
       time: new Date().toISOString()
     });
+    return;
+  }
+
+  if (path === '/api/backup') {
+    const codeParam = params.get('code');
+    const mensajeCodigo = 'El código debe tener 8 caracteres, por ejemplo ABCD-EFGH.';
+
+    if (req.method === 'POST') {
+      const code = codeParam ? normalizeBackupCode(codeParam) : null;
+      if (codeParam && !code) throw new HttpError(400, 'invalid_code', mensajeCodigo);
+
+      const payload = await readJsonBody(req);
+      const valid = validateBackupPayload(payload);
+      if (!valid.ok) throw new HttpError(400, 'invalid_backup', valid.error);
+
+      if (code) {
+        const existing = await readBackupFile(code);
+        if (!existing) throw new HttpError(404, 'not_found', 'No hay ninguna copia con ese código.');
+        const record = {
+          ...existing,
+          version: valid.version,
+          exportedAt: valid.exportedAt,
+          keys: valid.keys,
+          data: valid.data,
+          updatedAt: new Date().toISOString()
+        };
+        await writeBackupFile(code, record);
+        sendJson(res, 200, record);
+        return;
+      }
+
+      sendJson(res, 201, await createBackup(valid));
+      return;
+    }
+
+    const code = normalizeBackupCode(codeParam);
+    if (!code) throw new HttpError(400, 'invalid_code', mensajeCodigo);
+    const record = await readBackupFile(code);
+    if (!record) throw new HttpError(404, 'not_found', 'No hay ninguna copia con ese código.');
+    sendJson(res, 200, record);
     return;
   }
 
@@ -509,14 +612,15 @@ const server = createServer(async (req, res) => {
   }
 
   try {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      throw new HttpError(405, 'method_not_allowed', 'Solo se admiten peticiones GET.');
+    const isBackupPost = req.method === 'POST' && url.pathname === '/api/backup';
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !isBackupPost) {
+      throw new HttpError(405, 'method_not_allowed', 'Solo se admiten peticiones GET (y POST en /api/backup).');
     }
     if (url.pathname.startsWith('/api/')) {
       if (isRateLimited(ip)) {
         throw new HttpError(429, 'rate_limited', 'Demasiadas peticiones desde tu red. Espera un minuto.');
       }
-      await handleApi(url, res);
+      await handleApi(url, res, req);
     } else {
       await serveStatic(res, url.pathname);
     }

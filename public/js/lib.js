@@ -108,6 +108,16 @@ const BACKUP_SHAPES = {
 
 const countOf = (value) => (Array.isArray(value) ? value.length : Object.keys(value || {}).length);
 
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+/** "abcd efgh" → "ABCD-EFGH"; cualquier cosa que no sea un código válido → null. */
+export function normalizeBackupCode(raw) {
+  const clean = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (clean.length !== 8) return null;
+  if ([...clean].some((char) => !CODE_ALPHABET.includes(char))) return null;
+  return `${clean.slice(0, 4)}-${clean.slice(4)}`;
+}
+
 /** Copia exportable con versión y fecha, a partir del estado actual. */
 export function buildBackup(data, { now = new Date() } = {}) {
   return {

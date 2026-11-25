@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { rootPath, makeChecks } from './helpers.mjs';
 import { buildFundamentals } from './fixtures/fundamentals.mjs';
@@ -21,9 +24,10 @@ function fakeResponse(status, body) {
  * y su propio entorno. Al importarlo no escucha: las pruebas hablan con él
  * emitiendo la petición sobre el handler, sin abrir ningún socket.
  */
-async function loadServer({ token = 'demo', base = 'https://provider.test/api' } = {}) {
+async function loadServer({ token = 'demo', base = 'https://provider.test/api', dataDir } = {}) {
   process.env.EODHD_API_TOKEN = token;
   process.env.EODHD_BASE_URL = base;
+  process.env.MOAT_DATA_DIR = dataDir || mkdtempSync(join(tmpdir(), 'moat-datos-'));
   imports += 1;
   const { server } = await import(`${SERVER_ENTRY}?caso=${imports}`);
   return server;
@@ -71,9 +75,18 @@ function createResponse() {
 }
 
 /** Lanza una petición contra el handler del servidor, sin abrir puertos. */
-async function request(server, path, { method = 'GET', ip = '10.1.0.1' } = {}) {
+async function request(server, path, { method = 'GET', ip = '10.1.0.1', body } = {}) {
   const res = createResponse();
-  const req = { method, url: path, headers: { host: 'localhost' }, socket: { remoteAddress: ip } };
+  const raw = body === undefined ? null : typeof body === 'string' ? body : JSON.stringify(body);
+  const req = {
+    method,
+    url: path,
+    headers: { host: 'localhost' },
+    socket: { remoteAddress: ip },
+    async *[Symbol.asyncIterator]() {
+      if (raw !== null) yield Buffer.from(raw);
+    }
+  };
   const log = console.log;
   console.log = () => {}; // el servidor registra cada petición atendida
   try {
@@ -304,6 +317,61 @@ test('/api/analysis devuelve la rúbrica con su versión', async () => {
   check('los 8 factores con su nota', Object.keys(res.body.factors).length === 8, String(Object.keys(res.body.factors).length));
   check('cobertura 7 de 8', res.body.coverage === 7 && res.body.total === 8, `${res.body.coverage}/${res.body.total}`);
   check('marca la fuente de los datos', res.body.source === 'EODHD', String(res.body.source));
+
+  assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
+});
+
+test('la copia en el servidor se guarda, se recupera y sobrevive al reinicio', async () => {
+  const { check, failures } = makeChecks();
+  const dataDir = mkdtempSync(join(tmpdir(), 'moat-copias-'));
+  const server = await loadServer({ dataDir });
+  const provider = fakeProvider(() => {
+    throw new Error('las copias no llaman al proveedor');
+  });
+  provider.install();
+
+  const copia = {
+    app: 'moat',
+    version: 1,
+    exportedAt: '2026-11-25T10:00:00.000Z',
+    data: { watchlist: ['AAPL'], notes: { AAPL: 'Nota original' } }
+  };
+
+  const creada = await request(server, '/api/backup', { method: 'POST', ip: '10.7.0.1', body: copia });
+  check('crear devuelve 201', creada.status === 201, String(creada.status));
+  check('devuelve un código corto', /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(creada.body.code || ''), String(creada.body.code));
+  check('guarda la copia con sus secciones', creada.body.data.notes.AAPL === 'Nota original' && creada.body.keys.join() === 'watchlist,notes', String(creada.body.keys));
+
+  const code = creada.body.code;
+  const leida = await request(server, `/api/backup?code=${encodeURIComponent(code)}`, { ip: '10.7.0.2' });
+  check('se recupera con el código', leida.status === 200 && leida.body.data.watchlist[0] === 'AAPL', String(leida.status));
+  const normalizado = await request(server, `/api/backup?code=${code.replace('-', '').toLowerCase()}`, { ip: '10.7.0.3' });
+  check('acepta el código sin guion y en minúsculas', normalizado.status === 200, String(normalizado.status));
+
+  const actualizada = await request(server, `/api/backup?code=${encodeURIComponent(code)}`, {
+    method: 'POST',
+    ip: '10.7.0.4',
+    body: { ...copia, data: { notes: { AAPL: 'Nota nueva' } } }
+  });
+  check('actualizar el mismo código devuelve 200', actualizada.status === 200, String(actualizada.status));
+  check('actualiza solo lo enviado', actualizada.body.data.notes.AAPL === 'Nota nueva' && actualizada.body.data.watchlist === undefined);
+
+  const reinicio = await loadServer({ dataDir });
+  const trasReinicio = await request(reinicio, `/api/backup?code=${encodeURIComponent(code)}`, { ip: '10.7.0.5' });
+  check('la copia sobrevive a un reinicio', trasReinicio.status === 200 && trasReinicio.body.data.notes.AAPL === 'Nota nueva');
+
+  const desconocido = await request(server, '/api/backup?code=ZZZZ-ZZZZ', { ip: '10.7.0.6' });
+  check('código desconocido → 404 not_found', desconocido.status === 404 && desconocido.body.error.code === 'not_found', `${desconocido.status}/${desconocido.body.error.code}`);
+  const corto = await request(server, '/api/backup?code=ABC', { ip: '10.7.0.7' });
+  check('código con formato inválido → 400 invalid_code', corto.status === 400 && corto.body.error.code === 'invalid_code');
+  const rota = await request(server, '/api/backup', { method: 'POST', ip: '10.7.0.8', body: 'no es json' });
+  check('cuerpo que no es JSON → 400 invalid_backup', rota.status === 400 && rota.body.error.code === 'invalid_backup');
+  const forma = await request(server, '/api/backup', { method: 'POST', ip: '10.7.0.9', body: { data: { watchlist: 'AAPL' } } });
+  check('secciones con tipo incorrecto → 400 invalid_backup', forma.status === 400 && forma.body.error.code === 'invalid_backup');
+  const grande = await request(server, '/api/backup', { method: 'POST', ip: '10.7.0.10', body: 'x'.repeat(1_000_001) });
+  check('más de 1 MB → 413 payload_too_large', grande.status === 413 && grande.body.error.code === 'payload_too_large', `${grande.status}/${grande.body.error.code}`);
+  const postOtro = await request(server, '/api/quote', { method: 'POST', ip: '10.7.0.11', body: {} });
+  check('POST fuera de /api/backup → 405', postOtro.status === 405 && postOtro.body.error.code === 'method_not_allowed');
 
   assert.deepEqual(failures, [], `comprobaciones fallidas:\n${failures.join('\n')}`);
 });
