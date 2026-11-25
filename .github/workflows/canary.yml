@@ -1,0 +1,31 @@
+name: Canario de fuentes
+
+on:
+  schedule:
+    # Cada día a las 06:17 UTC.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canario
+  cancel-in-progress: false
+
+jobs:
+  canario:
+    name: TradingView, Nasdaq y Yahoo
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Ejecutar el canario
+        run: node scripts/canary.mjs

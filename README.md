@@ -111,6 +111,8 @@ Además de descargar el JSON, puedes **guardar la copia en el servidor** con un 
 
 Por defecto la app usa una **fuente gratuita sin clave** (los endpoints públicos del escáner y del buscador de TradingView): cotización, apertura, máximo, mínimo, capitalización, PER, sector y buscador para **todos los símbolos de EE. UU. y de las principales bolsas europeas** (`ASML.AS`, `SAP.DE`, `NESN.SW`, `MC.PA`, `IBE.MC`, `NOVO-B.CO`…). La cotización se pide en cadena y se devuelve la primera que responda, con su nombre en `source`: **TradingView** → **Nasdaq** (`api.nasdaq.com`, solo EE. UU.) → **Yahoo Finance** (`chart` v8, cubre también Europa). Así la tarjeta sigue dando precio si una fuente bloquea o cambia; Yahoo puede devolver 429 si se le insiste desde una misma IP (lo he visto en esta máquina y desaparece solo), así que va el último. No son APIs con contrato estable: si fallan las tres, el proxy devuelve un error claro (`market_unavailable`) con el código de cada intento, nunca datos inventados. **MSN Dinero se descartó**: sus endpoints exigen la clave interna de la app de MSN y responden 401 sin ella.
 
+**Canario diario.** `npm run canary` consulta las tres fuentes en vivo y valida que sigan devolviendo la forma que consume la tarjeta: precio y cierre positivos, cambio coherente con ambos, unidades sin disparates y precios que coinciden entre fuentes (≤ 3 %). Si alguna cambia de formato, el proceso sale con código 1 y el workflow `Canario de fuentes` se pone en rojo. No forma parte de `npm test`, que sigue sin red: corre cada día a las 06:17 UTC y se puede lanzar a mano desde Actions. Un 429 persistente solo avisa, porque es un límite pasajero y no un cambio de formato.
+
 Con `EODHD_API_TOKEN` en `.env` el proxy pasa a **EODHD** (`MARKET_SOURCE=auto` usa EODHD solo si hay token; `free` fuerza la fuente gratuita y `eodhd` la exige). EODHD añade lo que la fuente gratuita no da: estados financieros para el análisis de los 8 factores, titulares y fundamentales completos. Alternativas descartadas para esa parte: FMP limita el plan gratuito a EE. UU.; Finnhub solo da fundamentales de EE. UU. salvo en su plan global; Twelve Data no ofrece noticias y sus fundamentales empiezan en el plan Grow.
 
 La clave **nunca se envía al navegador**. `server/index.js` sirve la web y expone un proxy:
@@ -173,6 +175,7 @@ npm test
 | `test/search.test.mjs` | Buscador de símbolos (panel, teclado, vista de resultados, error de token demo) y ficha de valores fuera del universo. |
 | `test/server.test.mjs` | Servidor y proxy: validación y normalización de símbolos, códigos de error normalizados, caché, límite por IP y `/api/health`, con el proveedor simulado y sin red. |
 | `test/free-news.test.mjs` | Titulares gratis: lectura del RSS (fechas, CDATA, HTML fuera del resumen), Yahoo primero, Google de respaldo y fallo explicado cuando ninguna responde. |
+| `test/canary.test.mjs` | Canario sin red: validación del formato (fuente, símbolo, precio, unidades, coherencia del cambio), fallo por cambio/error/desacuerdo entre fuentes, 429 como aviso y reintento. |
 | `test/yahoo.test.mjs` | Tercer escalón: mapeo del símbolo (`.US` fuera, Europa intacta), lectura del `chart`, fecha ISO y errores 429/500/sin datos/sin red. |
 | `test/nasdaq.test.mjs` | Respaldo de Nasdaq: parseo de importes, cierre de la sesión frente a after-hours, ETF, símbolo inexistente y errores 429/500. |
 | `test/free-market.test.mjs` | Fuente gratuita: resolución de tickers (EE. UU., Euronext, Xetra, SIX, OMX), cotización, fundamentales, buscador con sufijos de la app y errores del proveedor. |
@@ -180,11 +183,13 @@ npm test
 | `test/backup.test.mjs` | Copia de seguridad: contenido exportado, validación de archivos inválidos o de versión futura, importación parcial, guardado y recuperación en el servidor con código, y error sin tocar los datos. |
 | `test/rubric.test.mjs` | Contrato de la rúbrica: pesos, bandas y nota calculada de los 8 factores, límites exactos (ROIC, PER, deuda neta/EBITDA, margen bruto), casos límite (un ejercicio, patrimonio negativo, EBITDA no positivo, pérdidas, dilución, margen volátil) y `rubricVersion`. |
 
-Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 493 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
+Las pruebas montan `public/index.html` y `public/js/app.js` reales en jsdom con `fetch` simulado, y las del servidor importan `server/index.js` sustituyendo `fetch` por un proveedor simulado: no usan red ni el token de EODHD, y el servidor no abre ningún puerto. En total son 513 comprobaciones; si alguna falla, `npm test` sale con código distinto de cero y el runner lista la comprobación concreta.
 
 ## Integración continua
 
-`.github/workflows/ci.yml` se ejecuta **en cada push y en cada pull request**: `npm ci`, `npm test` y `npm run build` con Node 20 y 22, más una comprobación de que `dist/` contiene `index.html`, `styles.css` y `js/app.js`.
+`.github/workflows/ci.yml` se ejecuta **en cada push y en cada pull request**: `npm ci`, `npm test` y `npm run build` con Node 20 y 22, más una comprobación de que `dist/` contiene `index.html`, `styles.css` y `js/app.js`. Las pruebas de ese workflow no tocan la red.
+
+`.github/workflows/canary.yml` es aparte: **cada día a las 06:17 UTC** (o a mano con *Run workflow*) ejecuta `node scripts/canary.mjs` contra las fuentes reales y se pone en rojo si TradingView, Nasdaq o Yahoo cambian de formato, fallan o dejan de coincidir entre sí. Así una rotura de una API gratuita se ve en el CI sin meter red en las pruebas normales.
 
 ## Ejecutar la web en local
 
@@ -243,7 +248,8 @@ Después, desde Android Studio puedes ejecutar en emulador o dispositivo físico
 - `capacitor.config.ts`: configuración de la app nativa.
 - `public/`: la app (HTML, CSS y módulos JS sin dependencias).
 - `server/`: servidor estático y proxy de EODHD (incluye la rúbrica).
-- `test/`: pruebas en jsdom y fixtures de análisis.
+- `test/`: pruebas en jsdom y fixtures de análisis (todas sin red).
+- `server/canary.mjs` y `scripts/canary.mjs`: canario de las fuentes gratuitas, con `npm run canary`.
 - `artifacts/`: capturas de la app enlazadas desde este README.
 - `.github/workflows/ci.yml`: pruebas y build en cada push.
 - `dist/`: salida de build web usada por Capacitor.
